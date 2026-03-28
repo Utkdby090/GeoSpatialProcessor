@@ -1,0 +1,14 @@
+Architecture: amd64
+Built-With: Hydraulic Conveyor
+Depends: libasound2t64 | liboss4-salsa-asound2, libc6, libgcc-s1, libstdc++6, libx11-6, libxext6, libxi6, libxrender1, libxtst6, zlib1g
+Description: Enterprise GeoSpatial Data Processing Tool
+Installed-Size: 140666
+Maintainer: GeoSpatial Tech Solutions <nobody@nowhere>
+Package: geospatial-tech-solutions-geospatial-processor
+Priority: optional
+Provides: geospatial-tech-solutions-geospatial-processor
+Section: misc
+Version: 1.0.0
+Filename: debian/geospatial-tech-solutions-geospatial-processor_1.0.0_amd64.deb
+Size: 82349856
+SHA256: 759080b46ffc648f825e771112e74cb2775dd1d81374e7ed7ccc702756fc7bdd

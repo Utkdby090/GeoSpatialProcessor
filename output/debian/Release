@@ -1,0 +1,18 @@
+Architectures: amd64
+Components: main
+Date: Fri, 20 Mar 2026 07:35:31 GMT
+Description: Public archive for GeoSpatial Tower Processor
+Origin: GeoSpatial Tower Processor
+Suite: debian
+MD5Sum:
+ 46489b9aa65241c69034bc3e7315cd57               650 Packages
+ 4dd76f544bf56e0d9be7e29bbb2fe44f               468 Packages.xz
+SHA1:
+ d2762a617537cc55d357c31815a221fce8053866               650 Packages
+ 9e092a4f89b8b7668de20726f84024bc73553f45               468 Packages.xz
+SHA256:
+ b7ec02977514d427cf2d606cebd14c3508bacd635e9d2bcf1e19ae398a33468d               650 Packages
+ 30ebff040ab6951de423a46402e1211d6c2472786b598fece64746da78fb1ade               468 Packages.xz
+SHA512:
+ 9b3c81dc5c1caccd0733c41bbb6a8a3aea4e902ef2d5d757ff57522152f947e28944e831a40c420b5edfb1fc3ddb7a17b5aa6ab3ead111b872add22d7b147c04               650 Packages
+ acad48692f2c608773d2dd16fa5cf9a749a1a7feb18b4dae64f5b75e667852c411a5460196de4549bfcce45c438b4300f01779c3f880993dd5ee96aca50ca80f               468 Packages.xz
