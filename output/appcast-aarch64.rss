@@ -13,11 +13,11 @@
             <description>
                 <![CDATA[ New release: version 1.0.0 ]]>
             </description>
-            <pubDate>Fri, 20 Mar 2026 07:34:39 GMT</pubDate>
+            <pubDate>Tue, 31 Mar 2026 14:10:40 GMT</pubDate>
             <enclosure url="http://localhost:8080/geospatial-processor-1.0.0-mac-aarch64.zip" 
-                       length="89485245" 
+                       length="89557780" 
                        type="application/octet-stream" 
-                       sparkle:edSignature="05UW7YepYGLPk42Scq1Ibg2J6MMlwphRnhK966vsqg3TFIoLY010AFqA9Y0hkyZ7HGkmsD3QoZAXfCNa5764CA=="/>
+                       sparkle:edSignature="mMpc994mKz6vrz7jnkEaUjBMy8pJE+4wP58FiG1qOShByFyZYCrarMus0p/ThHcKoDC1COcx3+7fBc5g6nm2Dw=="/>
         </item>
     </channel>
 </rss>

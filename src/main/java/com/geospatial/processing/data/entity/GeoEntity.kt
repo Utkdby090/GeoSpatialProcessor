@@ -16,15 +16,29 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
     var latitude by GeoDataTable.latitude
     var longitude by GeoDataTable.longitude
 
+    // --- NEW: Location Extenders ---
+    var phase by GeoDataTable.phase
+    var side by GeoDataTable.side
+    var direction by GeoDataTable.direction
+
+    // --- NEW: Time Data ---
+    var capturedDate by GeoDataTable.capturedDate
+    var capturedTime by GeoDataTable.capturedTime
+
     // --- Environmental Parameters ---
     var humidity by GeoDataTable.humidity
     var emissivity by GeoDataTable.emissivity
     var ambientTemp by GeoDataTable.ambientTemp
+
+    // --- Load Data ---
     var loadValue by GeoDataTable.loadValue
+    var loadDataCkt3 by GeoDataTable.loadDataCkt3
+    var loadDataCkt4 by GeoDataTable.loadDataCkt4
 
     // --- Fault Analysis ---
     var faultDescription by GeoDataTable.faultDescription
     var faultTemp by GeoDataTable.faultTemp
+    var riseTemp by GeoDataTable.riseTemp
 
     // --- Media (4 Slots) ---
     var thermalImage by GeoDataTable.thermalImage
@@ -35,6 +49,8 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
     // --- Meta ---
     var status by GeoDataTable.status
     var updatedAt by GeoDataTable.updatedAt
+
+    var reportType by GeoDataTable.reportType
 
     /**
      * Mapper function: Entity (DB) -> Domain Model (UI)
@@ -48,21 +64,34 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
             latitude = this.latitude,
             longitude = this.longitude,
 
-            // Parameters
+            // New Location & Time Extenders
+            phase = this.phase,
+            side = this.side,
+            direction = this.direction,
+            capturedDate = this.capturedDate,
+            capturedTime = this.capturedTime,
+
+            // Parameters & Load
             humidity = this.humidity,
             emissivity = this.emissivity,
             ambientTemp = this.ambientTemp,
             loadValue = this.loadValue,
+            loadDataCkt3 = this.loadDataCkt3,
+            loadDataCkt4 = this.loadDataCkt4,
 
             // Faults
             faultDescription = this.faultDescription,
             faultTemp = this.faultTemp,
+            riseTemp = this.riseTemp,
 
             // Images
             thermalImage = this.thermalImage,
             visualImage = this.visualImage,
             towerImage = this.towerImage,
             extraImage = this.extraImage,
+
+            //reportType
+            reportType = this.reportType,
 
             status = this.status
         )

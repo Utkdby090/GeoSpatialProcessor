@@ -15,7 +15,7 @@ import java.time.LocalDateTime
 
 class GeoRepository {
 
-    // --- 1. NEW: THE AUDIT LOGGING FUNCTION ---
+    // --- 1. THE AUDIT LOGGING FUNCTION ---
     /**
      * Records an immutable action to the audit log.
      */
@@ -63,6 +63,22 @@ class GeoRepository {
         circuit = record.circuit
         latitude = record.latitude
         longitude = record.longitude
+
+        // --- NEW: Location Extenders & Time ---
+        phase = record.phase
+        side = record.side
+        direction = record.direction
+        capturedDate = record.capturedDate
+        capturedTime = record.capturedTime
+
+        // --- NEW: Load Data ---
+        loadDataCkt3 = record.loadDataCkt3
+        loadDataCkt4 = record.loadDataCkt4
+
+        // --- NEW: Fault Analysis ---
+        riseTemp = record.riseTemp
+
+        // --- Existing Fields ---
         humidity = record.humidity
         emissivity = record.emissivity
         ambientTemp = record.ambientTemp
@@ -73,6 +89,7 @@ class GeoRepository {
         visualImage = record.visualImage
         towerImage = record.towerImage
         extraImage = record.extraImage
+        reportType = record.reportType
         status = record.status
     }
 
@@ -83,7 +100,7 @@ class GeoRepository {
         transaction {
             val entity = GeoEntity.findById(id)
             if (entity != null) {
-                // --- 2. NEW: AUTO-LOG THE DELETION ---
+                // --- 2. AUTO-LOG THE DELETION ---
                 AuditLogs.insert {
                     it[this.timestamp] = LocalDateTime.now()
                     it[this.action] = "DELETE_RECORD"
@@ -99,7 +116,7 @@ class GeoRepository {
      */
     suspend fun clearAllData() = withContext(Dispatchers.IO) {
         transaction {
-            // --- 3. NEW: AUTO-LOG THE PURGE BEFORE IT HAPPENS ---
+            // --- 3. AUTO-LOG THE PURGE BEFORE IT HAPPENS ---
             AuditLogs.insert {
                 it[this.timestamp] = LocalDateTime.now()
                 it[this.action] = "SYSTEM_PURGE"
@@ -115,6 +132,3 @@ class GeoRepository {
         }
     }
 }
-
-// --- 4. NEW: THE AUDIT TABLE SCHEMA ---
-// (You can leave this here, or move it to your 'table' package)

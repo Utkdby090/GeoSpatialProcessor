@@ -15,18 +15,11 @@ import java.nio.charset.StandardCharsets
 class CsvImportService(private val repository: GeoRepository) {
 
     private val logger = LoggerFactory.getLogger(CsvImportService::class.java)
-    /**
-     * Imports CSV data with a Progress Callback.
-     * Stripped of image processing for lightning-fast text-only imports.
-     * @param file The CSV file to import.
-     * @param onProgress Lambda that receives a float from 0.0 to 1.0.
-     * @return Count of successfully imported records.
-     */
+
     suspend fun importCsvFile(file: File, onProgress: (Float) -> Unit): Int = withContext(Dispatchers.IO) {
         var count = 0
         logger.info("Starting CSV import from file: {}", file.absolutePath)
         try {
-            // 1. Parse the file
             val parser = CSVParser.parse(
                 file,
                 StandardCharsets.UTF_8,
@@ -38,61 +31,88 @@ class CsvImportService(private val repository: GeoRepository) {
                     .build()
             )
 
-            // Get all records to calculate progress
             val records = parser.records
             val total = records.size
             if (total == 0) {
-                // 3. Log a warning if the user uploads an empty file
                 logger.warn("Aborting import: CSV file is empty or missing data rows.")
-
+                return@withContext 0
             }
 
             logger.info("Found {} records in CSV. Beginning database insertion.", total)
 
-            // 2. Loop through records
             for ((index, record) in records.withIndex()) {
 
-                // --- Extract Data Fields based on mapped CSV indices ---
-                // 0: Sr. No. (Ignored)
+                // --- Extract Core Data ---
                 val towerNum = getSafeByName(record, "Tower No.")
                 val lineName = getSafeByName(record, "Line Name")
                 val circuit = getSafeByName(record, "CKT")
                 val latStr = getSafeByName(record, "Lat.")
                 val longStr = getSafeByName(record, "Long.")
-                val ambTemp = getSafeByName(record, "Ambeint Temp.")
-                val faultTemp = getSafeByName(record, "Fault Temp.")
+
+                // --- Extract New Extenders (Matched to Sample.csv) ---
+                val phase = getSafeByName(record, "Phase")
+                val side = getSafeByName(record, "Side")
+                val capturedDate = getSafeByName(record, "Captured Date")
+                val capturedTime = getSafeByName(record, "Captured Time")
+
+                // --- Extract Environment & Load ---
+                val ambTemp = getSafeByName(record, "Ambeint Temp.") // Note: Keeping typo matched to CSV
                 val humidity = getSafeByName(record, "Humidity")
                 val emissivity = getSafeByName(record, "Emissivity")
-                val loadVal = getSafeByName(record, "Load Data CKT3")
+                val loadValCkt3 = getSafeByName(record, "Load Data CKT3")
+                val loadValCkt4 = getSafeByName(record, "Load Data CKT4")
 
-                // --- Create Record ---
+                // --- Extract Fault Data ---
+                val faultTemp = getSafeByName(record, "Fault Temp.")
+                val riseTemp = getSafeByName(record, "Rise Temp.")
+
+                // --- EXTRACTION AND CLEANUP FOR REPORT TYPE ---
+                val rawReportType = getSafeByName(record, "report_Type")
+                val cleanReportType = if (rawReportType.contains("Mid", ignoreCase = true)) {
+                    "mid_span"
+                } else {
+                    "tower_fault"
+                }
+
                 if (lineName.isNotBlank() && towerNum.isNotBlank()) {
-
                     val newRecord = GeoRecord(
-                        id = 0, // 0 = New Record
+                        id = 0,
                         lineName = lineName,
                         towerNumber = towerNum,
                         circuit = circuit,
                         latitude = latStr.toDoubleOrNull() ?: 0.0,
                         longitude = longStr.toDoubleOrNull() ?: 0.0,
 
+                        // Extenders
+                        phase = phase,
+                        side = side,
+                        capturedDate = capturedDate,
+                        capturedTime = capturedTime,
+
+                        // Parameters
                         humidity = humidity,
                         emissivity = emissivity,
                         ambientTemp = ambTemp,
-                        loadValue = loadVal,
 
-                        faultDescription = "", // No specific description column in this sample
+                        // Load Data (Using CKT3 as general load if needed, plus specifics)
+                        loadValue = loadValCkt3,
+                        loadDataCkt3 = loadValCkt3,
+                        loadDataCkt4 = loadValCkt4,
+
+                        // Faults
+                        faultDescription = "",
                         faultTemp = faultTemp,
+                        riseTemp = riseTemp,
 
-                        // ALL IMAGES START AS NULL (No manual overrides yet)
-                        // The app will use the hybrid architecture to resolve local files dynamically.
+                        // The New Report Type Field
+                        reportType = cleanReportType,
+
+                        // Media
                         thermalImage = null,
                         visualImage = null,
                         towerImage = null,
                         extraImage = null,
 
-                        // Status defaults to DRAFT.
-                        // Actual readiness is evaluated during UI render or PDF export when checking ImageSource.
                         status = RecordStatus.DRAFT
                     )
 
@@ -100,35 +120,21 @@ class CsvImportService(private val repository: GeoRepository) {
                     count++
                 }
 
-                // --- Report Progress ---
                 if (total > 0) {
-                    onProgress(((index + 1) / total).toFloat())
+                    onProgress(((index + 1).toFloat() / total.toFloat()))
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
             println("CSV Import Error: ${e.message}")
-
         }
 
-        // Ensure progress hits 100% at the end
         if (count > 0) onProgress(1.0f)
-
         return@withContext count
     }
 
-    /** Helper: Get column value safely */
-    private fun getSafe(record: CSVRecord, index: Int): String {
-        return if (index < record.size()) record.get(index) else ""
-    }
-
-
-    /** * Helper: Gets the column value safely using the exact Column Header Name.
-     * This prevents data from shifting if the CSV column order changes.
-     */
     private fun getSafeByName(record: CSVRecord, columnName: String): String {
         return try {
-            // Checks if the CSV actually has this header before trying to grab it
             if (record.isMapped(columnName)) {
                 record.get(columnName)?.trim() ?: ""
             } else {

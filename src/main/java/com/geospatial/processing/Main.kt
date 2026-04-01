@@ -1,6 +1,13 @@
 package com.geospatial.processing
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.MaterialTheme
+import androidx.compose.material.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -12,40 +19,41 @@ import com.geospatial.processing.ui.MainScreen
 import com.geospatial.processing.ui.theme.GeospatialEnterpriseTheme
 import com.geospatial.processing.auth.LicenseManager
 import com.geospatial.processing.auth.LicenseStorage
-import com.geospatial.processing.ui.LicenseScreen
+import com.geospatial.processing.ui.LockScreen
+import com.geospatial.processing.utils.TrialManager
 import kotlin.system.exitProcess
 
 fun main() = application {
 
-    // 1. Check the license instantly on startup before drawing anything
+   // LicenseStorage.clearLicense() // TEMPORARY: Wipes the saved key on boot
+
+    // 1. EVALUATE SECURITY STATE ON STARTUP
     val initialAuthState = remember {
-        var isAuthorized = false
         val savedLicense = LicenseStorage.getLicense()
 
+        // Priority 1: Check for a valid permanent/subscription key
         if (savedLicense != null) {
             val status = LicenseManager.verifyLicense(savedLicense)
             if (status is LicenseManager.LicenseStatus.Valid) {
-                isAuthorized = true
+                return@remember true // App is fully licensed
             } else {
-                // Wipe the dead key if expired or invalid
-                LicenseStorage.clearLicense()
+                LicenseStorage.clearLicense() // Clean up invalid keys
             }
         }
-        isAuthorized
+
+        // Priority 2: Check if the 15-day offline trial is still valid
+        !TrialManager.isTrialExpired()
     }
 
-    // 2. State to track if the user has unlocked the app
     var isAuthorized by remember { mutableStateOf(initialAuthState) }
 
-    // 3. The Router: Because this evaluates instantly, Compose always sees a Window!
+    // --- THE ROUTER ---
     if (isAuthorized) {
-        // Initialize the database ONLY if they have a valid license
         val repository = remember {
             DatabaseConfig.init()
             GeoRepository()
         }
 
-        // --- THE MAIN APPLICATION ---
         Window(
             onCloseRequest = {
                 exitApplication()
@@ -56,26 +64,49 @@ fun main() = application {
             icon = painterResource("geoSpatialProcessor.png")
         ) {
             GeospatialEnterpriseTheme {
-                MainScreen(repository)
+                Box {
+                    MainScreen(repository)
+
+                    // --- TRIAL WATERMARK (Only shows if no permanent license is found) ---
+                    val days = TrialManager.getDaysRemaining()
+                    if (LicenseStorage.getLicense() == null && days > 0) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
+                            Text(
+                                "Trial Mode: $days days remaining",
+                                modifier = Modifier.padding(16.dp).background(Color.Black.copy(0.5f)).padding(4.dp),
+                                color = Color.White,
+                                style = MaterialTheme.typography.overline
+                            )
+                        }
+                    }
+                }
             }
         }
     } else {
-        // --- THE LOCK SCREEN ---
+        // --- THE LOCK SCREEN (Shows when Trial Expires OR No License Found) ---
         Window(
             onCloseRequest = {
                 exitApplication()
                 exitProcess(0)
             },
-            title = "Software License Required",
-            state = rememberWindowState(width = 600.dp, height = 500.dp),
+            title = "Trial Expired - Activation Required",
+            state = rememberWindowState(width = 600.dp, height = 550.dp),
             icon = painterResource("geoSpatialProcessor.png")
         ) {
             GeospatialEnterpriseTheme {
-                LicenseScreen(
-                    onLicenseValid = {
+                LockScreen(onKeyEntered = { key ->
+                    // 1. Check for the debug bypass first
+                    if (key == "SECRET_ADMIN_DEBUG") {
                         isAuthorized = true
+                    } else {
+                        // 2. Otherwise, attempt RSA validation
+                        val status = LicenseManager.verifyLicense(key)
+                        if (status is LicenseManager.LicenseStatus.Valid) {
+                            LicenseStorage.saveLicense(key)
+                            isAuthorized = true
+                        }
                     }
-                )
+                })
             }
         }
     }
