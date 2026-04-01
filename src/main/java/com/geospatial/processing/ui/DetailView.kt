@@ -38,13 +38,26 @@ fun DetailView(
     var lat by remember(record) { mutableStateOf(record.latitude.toString()) }
     var long by remember(record) { mutableStateOf(record.longitude.toString()) }
 
+    // NEW: Location Extenders & Time
+    var phase by remember(record) { mutableStateOf(record.phase ?: "") }
+    var side by remember(record) { mutableStateOf(record.side ?: "") }
+    var direction by remember(record) { mutableStateOf(record.direction ?: "") }
+    var capturedDate by remember(record) { mutableStateOf(record.capturedDate ?: "") }
+    var capturedTime by remember(record) { mutableStateOf(record.capturedTime ?: "") }
+
     var humidity by remember(record) { mutableStateOf(record.humidity) }
     var emissivity by remember(record) { mutableStateOf(record.emissivity) }
     var ambientTemp by remember(record) { mutableStateOf(record.ambientTemp) }
-    var loadValue by remember(record) { mutableStateOf(record.loadValue) }
 
+    // NEW: Load Data
+    var loadValue by remember(record) { mutableStateOf(record.loadValue) }
+    var loadDataCkt3 by remember(record) { mutableStateOf(record.loadDataCkt3 ?: "") }
+    var loadDataCkt4 by remember(record) { mutableStateOf(record.loadDataCkt4 ?: "") }
+
+    // NEW: Fault Analysis
     var faultDesc by remember(record) { mutableStateOf(record.faultDescription) }
     var faultTemp by remember(record) { mutableStateOf(record.faultTemp) }
+    var riseTemp by remember(record) { mutableStateOf(record.riseTemp ?: "") }
 
     // --- MANUAL OVERRIDE STATE ---
     var imgThermal by remember(record) { mutableStateOf(record.thermalImage) }
@@ -53,69 +66,44 @@ fun DetailView(
     var imgExtra by remember(record) { mutableStateOf(record.extraImage) }
 
     // --- RESOLVED IMAGE STATE ---
-    val resolvedThermal = remember(record, imgThermal, rootDir) {
-        record.copy(thermalImage = imgThermal).resolveThermalImage(rootDir)
-    }
-    val resolvedVisual = remember(record, imgVisual, rootDir) {
-        record.copy(visualImage = imgVisual).resolveVisualImage(rootDir)
-    }
-    val resolvedTower = remember(record, imgTower, rootDir) {
-        record.copy(towerImage = imgTower).resolveTowerImage(rootDir)
-    }
-    val resolvedExtra = remember(record, imgExtra, rootDir) {
-        record.copy(extraImage = imgExtra).resolveExtraImage(rootDir)
-    }
+    val resolvedThermal = remember(record, imgThermal, rootDir) { record.copy(thermalImage = imgThermal).resolveThermalImage(rootDir) }
+    val resolvedVisual = remember(record, imgVisual, rootDir) { record.copy(visualImage = imgVisual).resolveVisualImage(rootDir) }
+    val resolvedTower = remember(record, imgTower, rootDir) { record.copy(towerImage = imgTower).resolveTowerImage(rootDir) }
+    val resolvedExtra = remember(record, imgExtra, rootDir) { record.copy(extraImage = imgExtra).resolveExtraImage(rootDir) }
 
     // --- VALIDATION STATE ---
     var lineNameError by remember { mutableStateOf(false) }
     var towerNumError by remember { mutableStateOf(false) }
-    var circuitError by remember { mutableStateOf(false) }
     var latError by remember { mutableStateOf(false) }
     var longError by remember { mutableStateOf(false) }
-    var humidityError by remember { mutableStateOf(false) }
-    var emissivityError by remember { mutableStateOf(false) }
-    var ambTempError by remember { mutableStateOf(false) }
-    var loadError by remember { mutableStateOf(false) }
-    var faultDescError by remember { mutableStateOf(false) }
-    var faultTempError by remember { mutableStateOf(false) }
-
-    var imgThermalError by remember { mutableStateOf(false) }
-    var imgVisualError by remember { mutableStateOf(false) }
-    var imgTowerError by remember { mutableStateOf(false) }
-    var imgExtraError by remember { mutableStateOf(false) }
 
     // --- SAVE LOGIC ---
     fun validateAndSave() {
         lineNameError = lineName.isBlank()
         towerNumError = towerNumber.isBlank()
-        circuitError = circuit.isBlank()
         latError = lat.isBlank() || lat.toDoubleOrNull() == null
         longError = long.isBlank() || long.toDoubleOrNull() == null
-        humidityError = humidity.isBlank()
-        emissivityError = emissivity.isBlank()
-        ambTempError = ambientTemp.isBlank()
-        loadError = loadValue.isBlank()
-        faultDescError = faultDesc.isBlank()
-        faultTempError = faultTemp.isBlank()
 
-        imgThermalError = resolvedThermal is ImageSource.Missing
-        imgVisualError = resolvedVisual is ImageSource.Missing
-        imgTowerError = resolvedTower is ImageSource.Missing
-        imgExtraError = resolvedExtra is ImageSource.Missing
+        val hasTextError = lineNameError || towerNumError || latError || longError
 
-        val hasTextError = lineNameError || towerNumError || circuitError || latError || longError ||
-                humidityError || emissivityError || ambTempError || loadError ||
-                faultDescError || faultTempError
-
-        val hasImageError = imgThermalError || imgVisualError || imgTowerError || imgExtraError
-
-        if (!hasTextError && !hasImageError) {
+        if (!hasTextError) {
             onSave(record.copy(
                 lineName = lineName,
                 towerNumber = towerNumber,
                 circuit = circuit,
                 latitude = lat.toDoubleOrNull() ?: 0.0,
                 longitude = long.toDoubleOrNull() ?: 0.0,
+
+                // Saving New Fields
+                phase = phase,
+                side = side,
+                direction = direction,
+                capturedDate = capturedDate,
+                capturedTime = capturedTime,
+                loadDataCkt3 = loadDataCkt3,
+                loadDataCkt4 = loadDataCkt4,
+                riseTemp = riseTemp,
+
                 humidity = humidity,
                 emissivity = emissivity,
                 ambientTemp = ambientTemp,
@@ -133,139 +121,138 @@ fun DetailView(
 
     // --- MAIN UI ---
     Scaffold(
-        backgroundColor = Color.Transparent, // Allows the Slate background from MainScreen to show through
+        backgroundColor = Color.Transparent,
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 text = { Text("SAVE TOWER DATA", color = Color.White) },
                 icon = { Icon(Icons.Default.Add, contentDescription = null, tint = Color.White) },
                 onClick = { validateAndSave() },
-                backgroundColor = MaterialTheme.colors.primaryVariant // Uses the dark enterprise navy
+                backgroundColor = MaterialTheme.colors.primaryVariant
             )
         }
     ) { padding ->
-        // THE PREMIUM FLOATING CARD
         Card(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp), // Breathing room from the edges of the window
+            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             elevation = 4.dp,
             shape = RoundedCornerShape(8.dp),
-            backgroundColor = MaterialTheme.colors.surface // Pure white
+            backgroundColor = MaterialTheme.colors.surface
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(32.dp) // Internal padding for the text
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(32.dp)
             ) {
                 // --- HEADER ---
-                Text("Tower Inspection Details", style = MaterialTheme.typography.h5, fontWeight = FontWeight.Bold, color = MaterialTheme.colors.onSurface)
-                val statusColor = if (record.status == RecordStatus.READY) Color(0xFF10B981) else Color(0xFFF59E0B) // Emerald vs Amber
-                Text("ID: ${record.id} • Status: ${record.status}", color = statusColor, fontWeight = FontWeight.SemiBold)
-
+                Text("Tower Inspection Details", style = MaterialTheme.typography.h5, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // --- SECTION 1: LOCATION ---
-                SectionHeader("Location Coordinates")
+                // --- SECTION 1: LOCATION & TIME ---
+                SectionHeader("Location & Temporal Data")
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ValidatedTextField(lineName, { lineName = it; lineNameError = false }, "Line Name", lineNameError, Modifier.weight(1f))
                     ValidatedTextField(towerNumber, { towerNumber = it; towerNumError = false }, "Tower No", towerNumError, Modifier.weight(0.5f))
-                    ValidatedTextField(circuit, { circuit = it; circuitError = false }, "Circuit", circuitError, Modifier.weight(0.5f))
+                    ValidatedTextField(circuit, { circuit = it }, "Circuit", false, Modifier.weight(0.5f))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ValidatedTextField(phase, { phase = it }, "Phase", false, Modifier.weight(1f))
+                    ValidatedTextField(side, { side = it }, "Side", false, Modifier.weight(1f))
+                    ValidatedTextField(direction, { direction = it }, "Direction", false, Modifier.weight(1f))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ValidatedTextField(capturedDate, { capturedDate = it }, "Captured Date", false, Modifier.weight(1f))
+                    ValidatedTextField(capturedTime, { capturedTime = it }, "Captured Time", false, Modifier.weight(1f))
                     ValidatedTextField(lat, { lat = it; latError = false }, "Latitude", latError, Modifier.weight(1f))
                     ValidatedTextField(long, { long = it; longError = false }, "Longitude", longError, Modifier.weight(1f))
                 }
+                val reportDisplay = if (record.reportType == "mid_span") "Mid-Span Fault" else "Tower Fault"
+
+                OutlinedTextField(
+                    value = reportDisplay,
+                    onValueChange = {}, // Read-only
+                    readOnly = true,
+                    label = { Text("Report Classification") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        backgroundColor = if (record.reportType == "mid_span") Color(0xFFE8F4F8) else Color(0xFFFDF2E9), // Light blue vs light orange
+                        disabledTextColor = Color.DarkGray
+                    ),
+                    enabled = false // Visually indicates it's auto-generated from the CSV
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // --- SECTION 2: IMAGES ---
-                SectionHeader("Inspection Images (All 4 Required)")
+                SectionHeader("Inspection Images")
+
+                // --- DYNAMIC OFFICIAL PDF LABELS ---
+                val isMidSpan = record.reportType == "mid_span"
+                val lblLocation = "Location"
+                val lblThermal = if (isMidSpan) "THERMAL Image" else "Thermal Image"
+                val lblTowerSpan = if (isMidSpan) "SPAN Image" else "Tower Image"
+                val lblRgb = "RGB Image"
+
                 Column {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        ImageSlot("Thermal Image", resolvedThermal, imgThermalError) { newBytes ->
-                            imgThermal = newBytes; imgThermalError = false
-                        }
-                        ImageSlot("RGB / Visual", resolvedVisual, imgVisualError) { newBytes ->
-                            imgVisual = newBytes; imgVisualError = false
-                        }
+                        // Top Left: Location Map (mapped to visualImage variable)
+                        ImageSlot(lblLocation, resolvedVisual, false) { imgVisual = it }
+
+                        // Top Right: Thermal IR (mapped to thermalImage variable)
+                        ImageSlot(lblThermal, resolvedThermal, false) { imgThermal = it }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        ImageSlot("Full Tower", resolvedTower, imgTowerError) { newBytes ->
-                            imgTower = newBytes; imgTowerError = false
-                        }
-                        ImageSlot("Extra / Zoom", resolvedExtra, imgExtraError) { newBytes ->
-                            imgExtra = newBytes; imgExtraError = false
-                        }
+                        // Bottom Left: Wide Structure (mapped to towerImage variable)
+                        ImageSlot(lblTowerSpan, resolvedTower, false) { imgTower = it }
+
+                        // Bottom Right: Zoom/RGB (mapped to extraImage variable)
+                        ImageSlot(lblRgb, resolvedExtra, false) { imgExtra = it }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-
-                // --- SECTION 3: PARAMETERS ---
-                SectionHeader("Environmental & Load")
+                // --- SECTION 3: PARAMETERS & LOAD ---
+                SectionHeader("Environmental & Load Data")
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    ValidatedTextField(humidity, { humidity = it; humidityError = false }, "Humidity (%)", humidityError, Modifier.weight(1f))
-                    ValidatedTextField(emissivity, { emissivity = it; emissivityError = false }, "Emissivity", emissivityError, Modifier.weight(1f))
+                    ValidatedTextField(humidity, { humidity = it }, "Humidity (%)", false, Modifier.weight(1f))
+                    ValidatedTextField(emissivity, { emissivity = it }, "Emissivity", false, Modifier.weight(1f))
+                    ValidatedTextField(ambientTemp, { ambientTemp = it }, "Amb. Temp (°C)", false, Modifier.weight(1f))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    ValidatedTextField(ambientTemp, { ambientTemp = it; ambTempError = false }, "Amb. Temp (°C)", ambTempError, Modifier.weight(1f))
-                    ValidatedTextField(loadValue, { loadValue = it; loadError = false }, "Load (Amps)", loadError, Modifier.weight(1f))
+                    ValidatedTextField(loadValue, { loadValue = it }, "General Load", false, Modifier.weight(1f))
+                    ValidatedTextField(loadDataCkt3, { loadDataCkt3 = it }, "Load CKT3", false, Modifier.weight(1f))
+                    ValidatedTextField(loadDataCkt4, { loadDataCkt4 = it }, "Load CKT4", false, Modifier.weight(1f))
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // --- SECTION 4: FAULT ANALYSIS ---
                 SectionHeader("Fault Analysis")
-                ValidatedTextField(faultDesc, { faultDesc = it; faultDescError = false }, "Description", faultDescError, Modifier.fillMaxWidth())
+                ValidatedTextField(faultDesc, { faultDesc = it }, "Fault Description", false, Modifier.fillMaxWidth())
                 Spacer(modifier = Modifier.height(8.dp))
-                ValidatedTextField(faultTemp, { faultTemp = it; faultTempError = false }, "Fault Temperature (°C)", faultTempError, Modifier.fillMaxWidth())
-                Spacer(modifier = Modifier.height(80.dp)) // Breathing room for the FAB
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ValidatedTextField(faultTemp, { faultTemp = it }, "Fault Temp (°C)", false, Modifier.weight(1f))
+                    ValidatedTextField(riseTemp, { riseTemp = it }, "Rise Temp (°C)", false, Modifier.weight(1f))
+                }
+                Spacer(modifier = Modifier.height(80.dp))
             }
         }
     }
 }
 
-// --- HELPER 1: Text Field with Red Error Border ---
+// --- HELPER 1: Text Field ---
 @Composable
-fun ValidatedTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    label: String,
-    isError: Boolean,
-    modifier: Modifier = Modifier
-) {
+fun ValidatedTextField(value: String, onValueChange: (String) -> Unit, label: String, isError: Boolean, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            label = { Text(label) },
-            isError = isError,
-            modifier = Modifier.fillMaxWidth(),
-            trailingIcon = {
-                if (isError) Icon(Icons.Default.Warning, "Error", tint = MaterialTheme.colors.error)
-            },
-            singleLine = true
-        )
-        if (isError) {
-            Text("Required", color = MaterialTheme.colors.error, style = MaterialTheme.typography.caption, modifier = Modifier.padding(start = 16.dp))
-        }
+        OutlinedTextField(value = value, onValueChange = onValueChange, label = { Text(label) }, isError = isError, modifier = Modifier.fillMaxWidth(), singleLine = true)
     }
 }
 
-// --- HELPER 2: Hybrid Image Slot ---
+// --- HELPER 2: Image Slot ---
+// --- HELPER 2: Image Slot ---
 @Composable
-fun RowScope.ImageSlot(
-    label: String,
-    imageSource: ImageSource,
-    isError: Boolean,
-    onUpload: (ByteArray?) -> Unit
-) {
+fun RowScope.ImageSlot(label: String, imageSource: ImageSource, isError: Boolean, onUpload: (ByteArray?) -> Unit) {
     val bitmap: ImageBitmap? = remember(imageSource) {
         try {
             when (imageSource) {
@@ -273,83 +260,68 @@ fun RowScope.ImageSlot(
                 is ImageSource.FromFile -> SkiaImage.makeFromEncoded(imageSource.file.readBytes()).toComposeImageBitmap()
                 is ImageSource.Missing -> null
             }
-        } catch (e: Exception) {
-            println("Failed to load image for $label: ${e.message}")
-            null
-        }
+        } catch (e: Exception) { null }
     }
-
-    val borderColor = if (isError) MaterialTheme.colors.error else Color.LightGray
-    val borderWidth = if (isError) 2.dp else 1.dp
-
     Column(modifier = Modifier.weight(1f)) {
-        Text(label, style = MaterialTheme.typography.subtitle2, color = if (isError) MaterialTheme.colors.error else Color.DarkGray)
+        Text(label, style = MaterialTheme.typography.subtitle2, color = Color.DarkGray)
         Spacer(modifier = Modifier.height(4.dp))
-
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFFF1F5F9)) // Very light slate background for empty slots
-                .border(borderWidth, borderColor, RoundedCornerShape(8.dp))
-                .clickable {
-                    val file = pickImageFile()
-                    if (file != null) {
-                        val compressed = ImageUtils.compressImage(file)
-                        if (compressed != null) onUpload(compressed)
-                    }
-                },
+            modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFFF1F5F9)).border(1.dp, Color.LightGray, RoundedCornerShape(8.dp)).clickable {
+                val file = pickImageFile()
+                if (file != null) { val compressed = ImageUtils.compressImage(file); if (compressed != null) onUpload(compressed) }
+            },
             contentAlignment = Alignment.Center
         ) {
             if (bitmap != null) {
                 Image(bitmap = bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
 
-                if (imageSource is ImageSource.FromBlob) {
-                    IconButton(
-                        onClick = { onUpload(null) },
-                        modifier = Modifier.align(Alignment.TopEnd).background(Color.White.copy(0.7f))
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = "Clear Override", tint = Color.Red)
-                    }
-                } else if (imageSource is ImageSource.FromFile) {
-                    Text(
-                        "Local File",
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .background(Color.Black.copy(0.6f), RoundedCornerShape(topEnd = 8.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = Color.White,
-                        style = MaterialTheme.typography.overline
-                    )
+                // --- RESTORED: RED DUSTBIN DELETE BUTTON ---
+
+                IconButton(
+                    onClick = { onUpload(ByteArray(0)) }, // <--- CHANGE THIS LINE (Send an empty byte array)
+                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.White.copy(0.9f), RoundedCornerShape(50)).size(36.dp)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "Clear Image", tint = Color.Red)
                 }
-            } else {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    val iconTint = if (isError) MaterialTheme.colors.error else Color.Gray
-                    Icon(Icons.Default.Add, contentDescription = null, tint = iconTint)
-                    Text("Click to override", color = iconTint, style = MaterialTheme.typography.caption)
+
+                // --- RESTORED: LOCAL FILE BADGE ---
+                if (imageSource is ImageSource.FromFile) {
+                    Text("Local File", modifier = Modifier.align(Alignment.BottomStart).background(Color.Black.copy(0.6f), RoundedCornerShape(topEnd = 8.dp)).padding(horizontal = 8.dp, vertical = 4.dp), color = Color.White, style = MaterialTheme.typography.overline)
                 }
             }
-        }
-        if (isError) {
-            Text("Image Missing", color = MaterialTheme.colors.error, style = MaterialTheme.typography.caption)
+            else Icon(Icons.Default.Add, contentDescription = null, tint = Color.Gray)
         }
     }
 }
 
-// --- HELPER 3: Common UI ---
 @Composable
 fun SectionHeader(title: String) {
     Text(title, style = MaterialTheme.typography.h6, color = MaterialTheme.colors.primary, modifier = Modifier.padding(bottom = 8.dp))
-    Divider(color = Color(0xFFE2E8F0)) // Light border color
+    Divider(color = Color(0xFFE2E8F0))
     Spacer(modifier = Modifier.height(8.dp))
 }
+
+// --- GLOBAL CACHE FOR IMAGE PICKER ---
+// This variable remembers the last folder you were in across the entire session
+private var lastVisitedDirectory: File? = null
 
 fun pickImageFile(): File? {
     val chooser = JFileChooser()
     chooser.dialogTitle = "Select Site Photograph"
-    chooser.fileFilter = FileNameExtensionFilter("Images (JPG, PNG)", "jpg", "jpeg", "png")
+    chooser.fileFilter = FileNameExtensionFilter("Images", "jpg", "jpeg", "png")
+
+    // If we have a cached directory, tell the chooser to start there
+    lastVisitedDirectory?.let {
+        chooser.currentDirectory = it
+    }
 
     val result = chooser.showOpenDialog(null)
-    return if (result == JFileChooser.APPROVE_OPTION) chooser.selectedFile else null
+
+    return if (result == JFileChooser.APPROVE_OPTION) {
+        // Save the directory we just used into the cache for next time!
+        lastVisitedDirectory = chooser.currentDirectory
+        chooser.selectedFile
+    } else {
+        null
+    }
 }

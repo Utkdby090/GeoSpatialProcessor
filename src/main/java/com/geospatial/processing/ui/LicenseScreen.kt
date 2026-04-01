@@ -8,9 +8,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.geospatial.processing.auth.HardwareUtil
 import com.geospatial.processing.auth.LicenseManager
 import com.geospatial.processing.auth.LicenseStorage
+import com.geospatial.processing.utils.HardwareUtil
 
 @Composable
 fun LicenseScreen(onLicenseValid: () -> Unit) {
