@@ -52,6 +52,8 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
 
     var reportType by GeoDataTable.reportType
 
+    var faultStatus by GeoDataTable.faultStatus
+
     /**
      * Mapper function: Entity (DB) -> Domain Model (UI)
      */
