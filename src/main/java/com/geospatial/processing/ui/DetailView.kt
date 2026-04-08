@@ -53,8 +53,8 @@ fun DetailView(
 
     // NEW: Load Data
     var loadValue by remember(record) { mutableStateOf(record.loadValue) }
-    var loadDataCkt3 by remember(record) { mutableStateOf(record.loadDataCkt3 ?: "") }
-    var loadDataCkt4 by remember(record) { mutableStateOf(record.loadDataCkt4 ?: "") }
+    var loadDataCkt1 by remember(record) { mutableStateOf(record.loadDataCkt1 ?: "") }
+    var loadDataCkt2 by remember(record) { mutableStateOf(record.loadDataCkt2 ?: "") }
 
     // NEW: Fault Analysis
     var faultDesc by remember(record) { mutableStateOf(record.faultDescription) }
@@ -102,8 +102,8 @@ fun DetailView(
                 direction = direction,
                 capturedDate = capturedDate,
                 capturedTime = capturedTime,
-                loadDataCkt3 = loadDataCkt3,
-                loadDataCkt4 = loadDataCkt4,
+                loadDataCkt1 = loadDataCkt1,
+                loadDataCkt2 = loadDataCkt2,
                 riseTemp = riseTemp,
 
                 humidity = humidity,
@@ -240,8 +240,8 @@ fun DetailView(
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ValidatedTextField(loadValue, { loadValue = it }, "General Load", false, Modifier.weight(1f))
-                    ValidatedTextField(loadDataCkt3, { loadDataCkt3 = it }, "Load CKT3", false, Modifier.weight(1f))
-                    ValidatedTextField(loadDataCkt4, { loadDataCkt4 = it }, "Load CKT4", false, Modifier.weight(1f))
+                    ValidatedTextField(loadDataCkt1, { loadDataCkt1 = it }, "Load CKT1", false, Modifier.weight(1f))
+                    ValidatedTextField(loadDataCkt2, { loadDataCkt2 = it }, "Load CKT2", false, Modifier.weight(1f))
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))

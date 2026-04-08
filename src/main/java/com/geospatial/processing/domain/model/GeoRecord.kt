@@ -32,8 +32,8 @@ data class GeoRecord(
 
     // --- Load Data ---
     val loadValue: String = "",
-    val loadDataCkt3: String? = null,
-    val loadDataCkt4: String? = null,
+    val loadDataCkt1: String? = null,
+    val loadDataCkt2: String? = null,
 
     // --- Faults ---
     val faultDescription: String = "",

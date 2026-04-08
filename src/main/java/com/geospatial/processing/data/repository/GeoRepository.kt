@@ -72,8 +72,8 @@ class GeoRepository {
         capturedTime = record.capturedTime
 
         // --- NEW: Load Data ---
-        loadDataCkt3 = record.loadDataCkt3
-        loadDataCkt4 = record.loadDataCkt4
+        loadDataCkt1 = record.loadDataCkt1
+        loadDataCkt2 = record.loadDataCkt2
 
         // --- NEW: Fault Analysis ---
         riseTemp = record.riseTemp
