@@ -50,7 +50,8 @@ object GeoDataTable : IntIdTable("geo_data") {
     val status = enumerationByName("status", 255, RecordStatus::class).default(RecordStatus.DRAFT)
     val updatedAt = datetime("updated_at").defaultExpression(CurrentDateTime)
 
-    val reportType = varchar("report_type", 50).default("TOWER_THERMAL_FAULT")
+    val reportType = varchar("report_type", 50).default("TOWER")
+    val faultStatus = varchar("fault_status", 50).default("Normal")
 }
 
 object AuditLogs : Table("audit_logs") {

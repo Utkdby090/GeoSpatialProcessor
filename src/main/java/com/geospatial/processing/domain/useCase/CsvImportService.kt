@@ -66,13 +66,13 @@ class CsvImportService(private val repository: GeoRepository) {
                 val faultTemp = getSafeByName(record, "Fault Temp.")
                 val riseTemp = getSafeByName(record, "Rise Temp.")
 
+                // 👇 NEW: Extract the Fault Description column
+                val faultDesc = getSafeByName(record, "Fault Description")
+
                 // --- EXTRACTION AND CLEANUP FOR REPORT TYPE ---
-                val rawReportType = getSafeByName(record, "report_Type")
-                val cleanReportType = if (rawReportType.contains("Mid", ignoreCase = true)) {
-                    "mid_span"
-                } else {
-                    "tower_fault"
-                }
+                val rawReportType = getSafeByName(record, "report_Type").ifBlank { "tower" }
+                val rawFaultStatus = getSafeByName(record, "Fault").ifBlank { "normal" }
+
 
                 if (lineName.isNotBlank() && towerNum.isNotBlank()) {
                     val newRecord = GeoRecord(
@@ -100,12 +100,13 @@ class CsvImportService(private val repository: GeoRepository) {
                         loadDataCkt4 = loadValCkt4,
 
                         // Faults
-                        faultDescription = "",
+                        faultDescription = faultDesc,
                         faultTemp = faultTemp,
                         riseTemp = riseTemp,
 
                         // The New Report Type Field
-                        reportType = cleanReportType,
+                        reportType = rawReportType,
+                        faultStatus = rawFaultStatus,
 
                         // Media
                         thermalImage = null,

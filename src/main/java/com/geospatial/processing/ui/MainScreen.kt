@@ -42,7 +42,16 @@ fun FrameWindowScope.MainScreen(repository: GeoRepository) {
     // --- Application State ---
     val scope = rememberCoroutineScope()
     var records by remember { mutableStateOf<List<GeoRecord>>(emptyList()) }
-    var selectedRecord by remember { mutableStateOf<GeoRecord?>(null) }
+    var sortAscending by remember { mutableStateOf(true) }
+    var selectedRecordId by remember { mutableStateOf<Int?>(null) }
+    val displayedRecords = remember(records, sortAscending) {
+        if (sortAscending) records else records.reversed()
+    }
+
+    var selectedIndex = displayedRecords.indexOfFirst { it.id == selectedRecordId }.takeIf { it >= 0 }
+    val selectedRecord = selectedIndex?.let { displayedRecords[it] }
+    val prevRecordName = selectedIndex?.let { displayedRecords.getOrNull(it - 1)?.towerNumber }
+    val nextRecordName = selectedIndex?.let { displayedRecords.getOrNull(it + 1)?.towerNumber }
 
     // --- ROOT DIRECTORY STATE ---
     var rootImageDirectory by remember { mutableStateOf("C:\\Tower_images") }
@@ -127,7 +136,7 @@ fun FrameWindowScope.MainScreen(repository: GeoRepository) {
         scope.launch {
             repository.deleteRecord(record.id)
             records = repository.getAllRecords()
-            if (selectedRecord?.id == record.id) selectedRecord = null
+            if (selectedRecord?.id == record.id) selectedIndex = null
         }
     }
 
@@ -135,7 +144,7 @@ fun FrameWindowScope.MainScreen(repository: GeoRepository) {
         scope.launch {
             repository.clearAllData()
             records = emptyList()
-            selectedRecord = null
+            selectedIndex = null
             showClearConfirmDialog = false
         }
     }
@@ -190,10 +199,14 @@ fun FrameWindowScope.MainScreen(repository: GeoRepository) {
                         .padding(end = 1.dp)
                 ) {
                     TreeView(
-                        records = records,
+                        records = displayedRecords,
                         selectedRecord = selectedRecord,
                         rootDir = rootImageDirectory,
-                        onSelect = { selectedRecord = it },
+                        isAscending = sortAscending,
+                        onToggleSort = { sortAscending = !sortAscending },
+                        onSelect = { record ->
+                            selectedRecordId = record.id
+                        },
                         onImportClick = { doImport(it) },
                         onExportClick = { doExport(it) },
                         onDeleteClick = { doDelete(it) }
@@ -209,11 +222,13 @@ fun FrameWindowScope.MainScreen(repository: GeoRepository) {
                         DetailView(
                             record = selectedRecord!!,
                             rootDir = rootImageDirectory,
+                            prevItemName = prevRecordName,
+                            nextItemName = nextRecordName,
                             onSave = { updatedRecord ->
                                 scope.launch {
                                     repository.saveRecord(updatedRecord)
                                     records = repository.getAllRecords()
-                                    selectedRecord = updatedRecord
+                                    selectedIndex = records.indexOfFirst { it.id == updatedRecord.id }
                                 }
                             }
                         )

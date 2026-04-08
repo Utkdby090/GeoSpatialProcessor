@@ -91,6 +91,7 @@ class GeoRepository {
         extraImage = record.extraImage
         reportType = record.reportType
         status = record.status
+        faultStatus = record.faultStatus
     }
 
     /**

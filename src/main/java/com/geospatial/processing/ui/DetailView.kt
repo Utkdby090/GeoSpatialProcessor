@@ -29,6 +29,8 @@ import org.jetbrains.skia.Image as SkiaImage
 fun DetailView(
     record: GeoRecord,
     rootDir: String,
+    prevItemName: String?,
+    nextItemName: String?,
     onSave: (GeoRecord) -> Unit
 ) {
     // --- FORM DATA STATE ---
@@ -164,19 +166,20 @@ fun DetailView(
                     ValidatedTextField(lat, { lat = it; latError = false }, "Latitude", latError, Modifier.weight(1f))
                     ValidatedTextField(long, { long = it; longError = false }, "Longitude", longError, Modifier.weight(1f))
                 }
-                val reportDisplay = if (record.reportType == "mid_span") "Mid-Span Fault" else "Tower Fault"
+                val reportDisplay = record.resolvedReportTitle
 
                 OutlinedTextField(
                     value = reportDisplay,
-                    onValueChange = {}, // Read-only
+                    onValueChange = {},
                     readOnly = true,
                     label = { Text("Report Classification") },
                     modifier = Modifier.fillMaxWidth(),
                     colors = TextFieldDefaults.outlinedTextFieldColors(
-                        backgroundColor = if (record.reportType == "mid_span") Color(0xFFE8F4F8) else Color(0xFFFDF2E9), // Light blue vs light orange
-                        disabledTextColor = Color.DarkGray
+                        // Dynamic colors: Light Orange/Red for Faults, Light Blue for Normal
+                        backgroundColor = if (record.isFault) Color(0xFFFDF2E9) else Color(0xFFE8F4F8),
+                        disabledTextColor = if (record.isFault) Color.Red else Color.DarkGray
                     ),
-                    enabled = false // Visually indicates it's auto-generated from the CSV
+                    enabled = false
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -199,12 +202,28 @@ fun DetailView(
                         // Top Right: Thermal IR (mapped to thermalImage variable)
                         ImageSlot(lblThermal, resolvedThermal, false) { imgThermal = it }
                     }
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        // Bottom Left: Wide Structure (mapped to towerImage variable)
+
+                    // THE PERFECTLY BALANCED BOTTOM ROW
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+
+                        // 1. The Navigator (Fixed narrow width, pushed to the left)
+                        TowerSequenceNavigator(
+                            previousItem = prevItemName,
+                            currentItem = record.towerNumber, // Or span/sleeve number
+                            nextItem = nextItemName,
+                            modifier = Modifier.width(65.dp)
+                        )
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        // 2. The Bottom-Left Image (Takes 50% of REMAINING space)
                         ImageSlot(lblTowerSpan, resolvedTower, false) { imgTower = it }
 
-                        // Bottom Right: Zoom/RGB (mapped to extraImage variable)
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        // 3. The Bottom-Right Image (Takes 50% of REMAINING space)
                         ImageSlot(lblRgb, resolvedExtra, false) { imgExtra = it }
                     }
                 }
@@ -250,7 +269,7 @@ fun ValidatedTextField(value: String, onValueChange: (String) -> Unit, label: St
 }
 
 // --- HELPER 2: Image Slot ---
-// --- HELPER 2: Image Slot ---
+
 @Composable
 fun RowScope.ImageSlot(label: String, imageSource: ImageSource, isError: Boolean, onUpload: (ByteArray?) -> Unit) {
     val bitmap: ImageBitmap? = remember(imageSource) {
@@ -278,7 +297,7 @@ fun RowScope.ImageSlot(label: String, imageSource: ImageSource, isError: Boolean
                 // --- RESTORED: RED DUSTBIN DELETE BUTTON ---
 
                 IconButton(
-                    onClick = { onUpload(ByteArray(0)) }, // <--- CHANGE THIS LINE (Send an empty byte array)
+                    onClick = { onUpload(ByteArray(0)) }, // Send an empty byte array to clear
                     modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.White.copy(0.9f), RoundedCornerShape(50)).size(36.dp)
                 ) {
                     Icon(Icons.Default.Delete, contentDescription = "Clear Image", tint = Color.Red)
