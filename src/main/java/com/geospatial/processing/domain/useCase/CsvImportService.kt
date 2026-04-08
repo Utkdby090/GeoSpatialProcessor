@@ -59,8 +59,8 @@ class CsvImportService(private val repository: GeoRepository) {
                 val ambTemp = getSafeByName(record, "Ambeint Temp.") // Note: Keeping typo matched to CSV
                 val humidity = getSafeByName(record, "Humidity")
                 val emissivity = getSafeByName(record, "Emissivity")
-                val loadValCkt3 = getSafeByName(record, "Load Data CKT3")
-                val loadValCkt4 = getSafeByName(record, "Load Data CKT4")
+                val loadValCkt1 = getSafeByName(record, "Load Data CKT1")
+                val loadValCkt2 = getSafeByName(record, "Load Data CKT2")
 
                 // --- Extract Fault Data ---
                 val faultTemp = getSafeByName(record, "Fault Temp.")
@@ -95,9 +95,9 @@ class CsvImportService(private val repository: GeoRepository) {
                         ambientTemp = ambTemp,
 
                         // Load Data (Using CKT3 as general load if needed, plus specifics)
-                        loadValue = loadValCkt3,
-                        loadDataCkt3 = loadValCkt3,
-                        loadDataCkt4 = loadValCkt4,
+                        loadValue = loadValCkt1,
+                        loadDataCkt1 = loadValCkt1,
+                        loadDataCkt2 = loadValCkt2,
 
                         // Faults
                         faultDescription = faultDesc,

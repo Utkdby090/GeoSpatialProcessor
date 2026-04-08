@@ -9,7 +9,7 @@ import java.util.Base64
 object LicenseManager {
 
     // IMPORTANT: Paste your Spring Boot PUBLIC key here
-    private const val PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6JX4kuoN4vJYdo/LRbaysnzQASZfz1xc1a8d1WkkB25C3k7K3XxxgY4GAY6fMc9paohwu6QEdJ7xDgTMVw+TnJqZ3lUsBZ1euiLTCl+OWrqR5DNvuP1iu0zYOgvXqcDbyBJ4fX/WPJWXHFN4FALhDjPKHF1BdDJH8fk5Et5nqkl8CEseqGwQnWrTmlSdEraVDyrmipCrJs1vn0hZq6W74K0CsfeYLB0xq8/8heQN2XKk/I2UBWTK56wd4a79L0+TMXrp5FkdQkYb+ad3ejrNnJQs8AD852I/DYxZRVmpq125g2/7uQkH0ysA24fNG71qbeTS2a9oQGnZtCw2aAF8ewIDAQAB"
+    private const val PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1b1hetj1sg1AVAsF1Sjhvp+Hha8tn3KLJ+cx8ZJpTmxLErz1L2RwqCOlZsfeiwzPTiTulHBTW9mCSctvTakzfVE3Lw5fDmaY7aOSk38RCwCf6vXuuWe1Ny901kiMOFNwMg9o0PWOkeFidkqUHSgBXIREDqobzGbamZoxcx2DqxiwZA82n9jrpE6gAEOWpUr2ufu1V2iTkpGgw3EMIfz2R3yieqXrH18q3wfRDR/gxqOt/QY5EVUXfKmja5lsxLyPliE5uWz052wAbxkTEoVkzXVh85y16i9suVdaGh1lEsjca4kNQa+WDmoIfdkhV63+8GgnJfLKq64rLpONAXO0hwIDAQAB"
 
     sealed class LicenseStatus {
         object Valid : LicenseStatus()

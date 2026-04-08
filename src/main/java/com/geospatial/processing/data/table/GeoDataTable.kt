@@ -32,8 +32,8 @@ object GeoDataTable : IntIdTable("geo_data") {
 
     // --- NEW: Load Data ---
     val loadValue = varchar("load_val", 255).default("")      // General load
-    val loadDataCkt3 = varchar("load_data_ckt3", 255).nullable()
-    val loadDataCkt4 = varchar("load_data_ckt4", 255).nullable()
+    val loadDataCkt1 = varchar("load_data_ckt3", 255).nullable()
+    val loadDataCkt2 = varchar("load_data_ckt4", 255).nullable()
 
     // --- Fault Analysis ---
     val faultDescription = text("fault_desc").default("")

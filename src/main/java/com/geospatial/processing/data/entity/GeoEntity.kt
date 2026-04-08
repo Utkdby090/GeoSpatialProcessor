@@ -32,8 +32,8 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
 
     // --- Load Data ---
     var loadValue by GeoDataTable.loadValue
-    var loadDataCkt3 by GeoDataTable.loadDataCkt3
-    var loadDataCkt4 by GeoDataTable.loadDataCkt4
+    var loadDataCkt1 by GeoDataTable.loadDataCkt1
+    var loadDataCkt2 by GeoDataTable.loadDataCkt2
 
     // --- Fault Analysis ---
     var faultDescription by GeoDataTable.faultDescription
@@ -78,8 +78,8 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
             emissivity = this.emissivity,
             ambientTemp = this.ambientTemp,
             loadValue = this.loadValue,
-            loadDataCkt3 = this.loadDataCkt3,
-            loadDataCkt4 = this.loadDataCkt4,
+            loadDataCkt1 = this.loadDataCkt1,
+            loadDataCkt2 = this.loadDataCkt2,
 
             // Faults
             faultDescription = this.faultDescription,
