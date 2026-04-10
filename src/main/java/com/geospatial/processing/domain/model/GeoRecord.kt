@@ -61,8 +61,7 @@ data class GeoRecord(
     // Checks the new column, but falls back to checking reportType for older CSV formats
     val isFault: Boolean
         get() = faultStatus.contains("fault", ignoreCase = true) ||
-                reportType.contains("fault", ignoreCase = true) ||
-    (faultDescription.isNotBlank() && !faultDescription.equals("NA", ignoreCase = true))
+                reportType.contains("fault", ignoreCase = true)
 
     // The single source of truth for the PDF Title and UI Header
     val resolvedReportTitle: String
