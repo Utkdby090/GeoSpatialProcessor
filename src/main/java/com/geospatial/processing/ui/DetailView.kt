@@ -52,7 +52,7 @@ fun DetailView(
     var ambientTemp by remember(record) { mutableStateOf(record.ambientTemp) }
 
     // NEW: Load Data
-    var loadValue by remember(record) { mutableStateOf(record.loadValue) }
+    //var loadValue by remember(record) { mutableStateOf(record.loadValue) }
     var loadDataCkt1 by remember(record) { mutableStateOf(record.loadDataCkt1 ?: "") }
     var loadDataCkt2 by remember(record) { mutableStateOf(record.loadDataCkt2 ?: "") }
 
@@ -109,7 +109,7 @@ fun DetailView(
                 humidity = humidity,
                 emissivity = emissivity,
                 ambientTemp = ambientTemp,
-                loadValue = loadValue,
+                //loadValue = loadValue,
                 faultDescription = faultDesc,
                 faultTemp = faultTemp,
                 thermalImage = imgThermal,
@@ -239,7 +239,7 @@ fun DetailView(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    ValidatedTextField(loadValue, { loadValue = it }, "General Load", false, Modifier.weight(1f))
+               //     ValidatedTextField(loadValue, { loadValue = it }, "General Load", false, Modifier.weight(1f))
                     ValidatedTextField(loadDataCkt1, { loadDataCkt1 = it }, "Load CKT1", false, Modifier.weight(1f))
                     ValidatedTextField(loadDataCkt2, { loadDataCkt2 = it }, "Load CKT2", false, Modifier.weight(1f))
                 }

@@ -5,11 +5,12 @@ import java.security.KeyFactory
 import java.security.Signature
 import java.time.LocalDate
 import java.util.Base64
+import java.time.temporal.ChronoUnit
 
 object LicenseManager {
 
     // IMPORTANT: Paste your Spring Boot PUBLIC key here
-    private const val PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1b1hetj1sg1AVAsF1Sjhvp+Hha8tn3KLJ+cx8ZJpTmxLErz1L2RwqCOlZsfeiwzPTiTulHBTW9mCSctvTakzfVE3Lw5fDmaY7aOSk38RCwCf6vXuuWe1Ny901kiMOFNwMg9o0PWOkeFidkqUHSgBXIREDqobzGbamZoxcx2DqxiwZA82n9jrpE6gAEOWpUr2ufu1V2iTkpGgw3EMIfz2R3yieqXrH18q3wfRDR/gxqOt/QY5EVUXfKmja5lsxLyPliE5uWz052wAbxkTEoVkzXVh85y16i9suVdaGh1lEsjca4kNQa+WDmoIfdkhV63+8GgnJfLKq64rLpONAXO0hwIDAQAB"
+    private const val PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy6XjXo+OH4n5sqaRw+GHfi/XbyvqD8OsAVFW1CPxfn3jKOIEpsbEvERQ6433ROO4TBErHP723+C335hfPXU1NMj6gkCedz3RmABX9uCo/C5CbQbMZES2/PiG60pUnxj1WibbawnokMIpaOQBMY+zRw1ilttHEi24wOxD6gcoaoL173NdD/p2DeFMp+mhZWYgnilVRbIprfQIpXmzapCM4hYgo8NLni1Amm5oz+HmK5lIU4jO6SEFI3wE79VlzRqcUFn8Qs0JiSM/RBPRefpg9oIMslbmMSQ9o2gSF22EvZOUrEWybwueaM1ppT8p0nBAg5HOL48J2n0xJ7qd6XtGvQIDAQAB"
 
     sealed class LicenseStatus {
         object Valid : LicenseStatus()
@@ -78,6 +79,33 @@ object LicenseManager {
             println("DEBUG: Cryptographic Verification Failed.")
             e.printStackTrace()
             return LicenseStatus.TamperedOrInvalid
+        }
+    }
+    /**
+     * Decodes a VALID license to tell the UI how many days are left in the subscription.
+     */
+    fun getSubscriptionDaysRemaining(licenseString: String): Long {
+        return try {
+            val cleanLicense = licenseString.trim()
+            val parts = cleanLicense.split(".")
+            if (parts.size != 2) return 0
+
+            val encodedPayload = parts[0]
+            val payloadString = String(Base64.getUrlDecoder().decode(encodedPayload))
+            val payloadParts = payloadString.split("|")
+
+            if (payloadParts.size != 2) return 0
+
+            val expirationDateStr = payloadParts[1]
+            val expiryDate = LocalDate.parse(expirationDateStr)
+
+            // Calculate days between today and the expiry date
+            val daysLeft = ChronoUnit.DAYS.between(LocalDate.now(), expiryDate)
+
+            // Return days left, but don't drop below 0
+            if (daysLeft < 0) 0 else daysLeft
+        } catch (e: Exception) {
+            0
         }
     }
 }

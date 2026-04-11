@@ -39,48 +39,43 @@ class PdfGenerationService(private val repository: GeoRepository) {
     ): Int = withContext(Dispatchers.IO) {
         logger.info("Starting bulk ZIP export to: ${destZipFile.absolutePath}")
 
-        val records = repository.getAllRecords()
-        val total = records.size
-        if (total == 0) return@withContext 0
+        val masterRecords = repository.getAllRecords()
+        val readyRecords = masterRecords.filter { it.status == RecordStatus.READY }
+        val total = readyRecords.size
+
+        if (total == 0) {
+            logger.warn("No READY records found to export.")
+            return@withContext 0
+        }
 
         var processedCount = 0
 
         try {
             ZipOutputStream(FileOutputStream(destZipFile)).use { zipOut ->
-                // --- IN-MEMORY GROUPING BY REPORT TYPE ---
-                val groupedRecords = records.groupBy { it.reportType }
+                val groupedRecords = readyRecords.groupBy { it.reportType }
 
-                // Iterate through each group dynamically
                 for ((type, recordsGroup) in groupedRecords) {
-
-                    // --- NEW: DYNAMIC FOLDER NAMING ---
                     val folderName = when {
                         type.contains("mid", ignoreCase = true) -> "Mid_Span_Reports"
                         type.contains("sleeve", ignoreCase = true) -> "Repair_Sleeve_Reports"
                         else -> "Tower_Reports"
                     }
 
-                    // --- NEW: USE withIndex() FOR NEIGHBOR LOOKUPS ---
-                    for ((index, record) in recordsGroup.withIndex()) {
-
-                        // Grab the neighboring tower numbers (null if at start/end)
-                        val prevItem = recordsGroup.getOrNull(index - 1)?.towerNumber
-                        val nextItem = recordsGroup.getOrNull(index + 1)?.towerNumber
+                    for (record in recordsGroup) {
+                        val masterIndex = masterRecords.indexOfFirst { it.id == record.id }
+                        val prevItem = masterRecords.getOrNull(masterIndex - 1)?.towerNumber
+                        val nextItem = masterRecords.getOrNull(masterIndex + 1)?.towerNumber
 
                         val safeTowerName = record.towerNumber.replace("[\\\\/:*?\"<>|]".toRegex(), "_")
-
-                        // Inject the folder path directly into the ZipEntry
-                        val entryName = "$folderName/Tower_${safeTowerName}_Report.pdf"
+                        val faultStatusPrefix = if (record.isFault) "FAULT" else "NORMAL"
+                        val entryName = "$folderName/${faultStatusPrefix}_Tower_${safeTowerName}_Report.pdf"
 
                         zipOut.putNextEntry(ZipEntry(entryName))
-
-                        // Pass the neighbors into the single PDF writer
                         writeSingleTowerPdf(record, rootDir, zipOut, prevItem, nextItem)
-
                         zipOut.closeEntry()
 
                         processedCount++
-                        onProgress(processedCount, total) // Update progress bar accurately
+                        onProgress(processedCount, total)
                     }
                 }
             }
@@ -90,7 +85,6 @@ class PdfGenerationService(private val repository: GeoRepository) {
         return@withContext total
     }
 
-    // --- UPDATED SIGNATURE: Accepts prevItem and nextItem ---
     private fun writeSingleTowerPdf(
         record: GeoRecord,
         rootDir: String,
@@ -99,18 +93,14 @@ class PdfGenerationService(private val repository: GeoRepository) {
         nextItem: String?
     ) {
         val document = Document(PageSize.A4)
-        // Reduced margins to allow for much larger image sizes
         document.setMargins(20f, 20f, 20f, 20f)
 
-        // --- NEW: DYNAMIC REPORT CONFIGURATION ---
         val type = record.reportType.lowercase()
         val isMidSpan = type.contains("mid")
         val isSleeve = type.contains("sleeve")
 
-        // 1. USE THE BULLETPROOF TITLE FROM GEORECORD
         val documentTitleText = record.resolvedReportTitle.uppercase()
 
-        // 2. DYNAMIC PDF IMAGE LABELS
         val labelSlot1 = "Location"
         val labelSlot2 = if (isMidSpan) "THERMAL Image" else "Thermal Image"
         val labelSlot3 = when {
@@ -119,11 +109,10 @@ class PdfGenerationService(private val repository: GeoRepository) {
             else -> "Tower Image"
         }
         val labelSlot4 = "RGB Image"
-        // -----------------------------------------
 
         try {
             val writer = PdfWriter.getInstance(document, outputStream)
-            writer.isCloseStream = false // Protects the ZIP stream
+            writer.isCloseStream = false
 
             document.open()
 
@@ -148,24 +137,35 @@ class PdfGenerationService(private val repository: GeoRepository) {
             })
             document.add(headerTable)
 
-            // --- 3. MASSIVE IMAGES GRID ---
+            // --- 3. IMAGES GRID ---
+
             val imagesTable = PdfPTable(2).apply {
                 widthPercentage = 100f
                 setSpacingAfter(10f)
             }
 
-            // APPLIED DYNAMIC LABELS HERE
+            // Top Row Images
             addImageCell(imagesTable, labelSlot1, getImageBytes(record.resolveVisualImage(rootDir)))
             addImageCell(imagesTable, labelSlot2, getImageBytes(record.resolveThermalImage(rootDir)))
-            //addImageCell(imagesTable, labelSlot3, getImageBytes(record.resolveTowerImage(rootDir)))
-            addTowerImageWithNavigatorCell(
-                imagesTable,
-                labelSlot3,
-                getImageBytes(record.resolveTowerImage(rootDir)),
-                record.towerNumber,
-                prevItem,
-                nextItem
-            )
+
+            // Bottom Left: Conditional Navigator Logic
+            val slot3ImageBytes = getImageBytes(record.resolveTowerImage(rootDir))
+            if (isMidSpan) {
+                // MidSpan reports get a clean, standard image cell with no navigator arrows
+                addImageCell(imagesTable, labelSlot3, slot3ImageBytes)
+            } else {
+                // Tower and Sleeve reports keep the dynamic navigator
+                addTowerImageWithNavigatorCell(
+                    imagesTable,
+                    labelSlot3,
+                    slot3ImageBytes,
+                    record.towerNumber,
+                    prevItem,
+                    nextItem
+                )
+            }
+
+            // Bottom Right Image
             addImageCell(imagesTable, labelSlot4, getImageBytes(record.resolveExtraImage(rootDir)))
 
             document.add(imagesTable)
@@ -190,8 +190,12 @@ class PdfGenerationService(private val repository: GeoRepository) {
             metricsTable.addCell(createSectionHeader("ENVIRONMENTAL & LOAD PARAMETERS", 4))
             addMetricCell(metricsTable, "Ambient Temp", formatWithUnit(record.ambientTemp, "°C"))
             addMetricCell(metricsTable, "Humidity", formatWithUnit(record.humidity, "%"))
+
+            // --> FIXED GRID ALIGNMENT: Emissivity and a blank spacer block
             addMetricCell(metricsTable, "Emissivity", record.emissivity)
-            addMetricCell(metricsTable, "General Load", formatWithUnit(record.loadValue, "A"))
+            addMetricCell(metricsTable, "", "") // Hidden spacer to keep the grid perfectly balanced
+
+            // Keeps the load circuits neatly on their own row
             addMetricCell(metricsTable, "Load CKT1", formatWithUnit(record.loadDataCkt1 ?: "", "A"))
             addMetricCell(metricsTable, "Load CKT2", formatWithUnit(record.loadDataCkt2 ?: "", "A"))
 
@@ -207,9 +211,10 @@ class PdfGenerationService(private val repository: GeoRepository) {
             document.add(metricsTable)
 
             // --- 5. FOOTER ---
-            val timestamp = java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-            val footer = Paragraph("$timestamp", Font(Font.HELVETICA, 8f, Font.ITALIC, Color.GRAY)).apply {
-                alignment = Element.ALIGN_RIGHT
+            val displayCompany = if (record.companyName.isNotBlank()) record.companyName.uppercase() else "GEOSPATIAL PROCESSING"
+            val footerText = "Report created by : $displayCompany"
+            val footer = Paragraph(footerText, Font(Font.HELVETICA, 10f, Font.BOLD, Color.GRAY)).apply {
+                alignment = Element.ALIGN_RIGHT // Keeps it neatly in the bottom right corner
             }
             document.add(footer)
 
@@ -249,8 +254,14 @@ class PdfGenerationService(private val repository: GeoRepository) {
     }
 
     private fun addMetricCell(table: PdfPTable, label: String, value: String) {
-        table.addCell(createLabelCell(label))
-        table.addCell(createValueCell(value))
+        // If the label is intentionally blank (for our spacer), clear the background color
+        if (label.isBlank()) {
+            table.addCell(PdfPCell(Phrase("")).apply { border = Rectangle.NO_BORDER })
+            table.addCell(PdfPCell(Phrase("")).apply { border = Rectangle.NO_BORDER })
+        } else {
+            table.addCell(createLabelCell(label))
+            table.addCell(createValueCell(value))
+        }
     }
 
     private fun createLabelCell(text: String) = PdfPCell(Phrase(text, labelFont)).apply {
@@ -265,7 +276,8 @@ class PdfGenerationService(private val repository: GeoRepository) {
         setPadding(4f)
         verticalAlignment = Element.ALIGN_MIDDLE
     }
-    // --- NEW: SPECIALIZED NAVIGATOR IMAGE BUILDER ---
+
+    // --- SPECIALIZED NAVIGATOR IMAGE BUILDER ---
     private fun addTowerImageWithNavigatorCell(
         table: PdfPTable,
         label: String,
@@ -280,13 +292,11 @@ class PdfGenerationService(private val repository: GeoRepository) {
             verticalAlignment = Element.ALIGN_MIDDLE
         }
 
-        // Create a nested table: Column 1 (Image), Column 2 (Navigator Panel)
         val nestedTable = PdfPTable(2).apply {
             widthPercentage = 100f
             setWidths(floatArrayOf(4.2f, 0.8f))
         }
 
-        // --- LEFT SIDE: THE IMAGE ---
         val imageCell = PdfPCell().apply {
             border = Rectangle.NO_BORDER
             horizontalAlignment = Element.ALIGN_CENTER
@@ -297,7 +307,7 @@ class PdfGenerationService(private val repository: GeoRepository) {
         if (imageBytes != null) {
             try {
                 val img = Image.getInstance(imageBytes).apply {
-                    scaleToFit(210f, 170f) // Slightly smaller to fit the side panel
+                    scaleToFit(210f, 170f)
                     alignment = Element.ALIGN_CENTER
                 }
                 imageCell.addElement(img)
@@ -315,7 +325,6 @@ class PdfGenerationService(private val repository: GeoRepository) {
         }
         nestedTable.addCell(imageCell)
 
-        // --- RIGHT SIDE: THE NAVIGATOR ---
         val navCell = PdfPCell().apply {
             border = Rectangle.NO_BORDER
             horizontalAlignment = Element.ALIGN_CENTER
@@ -327,32 +336,26 @@ class PdfGenerationService(private val repository: GeoRepository) {
         val grayFont = Font(Font.HELVETICA, 8f, Font.NORMAL, Color.DARK_GRAY)
         val boldFont = Font(Font.HELVETICA, 11f, Font.BOLD, primaryColor)
 
-        // Previous Item (Text first, then Arrow pointing to Current)
         if (prevItem != null) {
             navCell.addElement(Paragraph(prevItem, grayFont).apply { alignment = Element.ALIGN_CENTER })
             navCell.addElement(Paragraph("▲", grayFont).apply { alignment = Element.ALIGN_CENTER })
         } else {
-            navCell.addElement(Paragraph(" \n ", grayFont)) // Spacer
+            navCell.addElement(Paragraph(" \n ", grayFont))
         }
 
-        navCell.addElement(Paragraph(" ", grayFont)) // Visual Spacer
+        navCell.addElement(Paragraph(" ", grayFont))
 
-        // Current Item
         navCell.addElement(Paragraph(currentItem, boldFont).apply { alignment = Element.ALIGN_CENTER })
+        navCell.addElement(Paragraph(" ", grayFont))
 
-        navCell.addElement(Paragraph(" ", grayFont)) // Visual Spacer
-
-        // Next Item (Arrow pointing to Next, then Text)
         if (nextItem != null) {
             navCell.addElement(Paragraph("▼", grayFont).apply { alignment = Element.ALIGN_CENTER })
             navCell.addElement(Paragraph(nextItem, grayFont).apply { alignment = Element.ALIGN_CENTER })
         } else {
-            navCell.addElement(Paragraph(" \n ", grayFont)) // Spacer
+            navCell.addElement(Paragraph(" \n ", grayFont))
         }
 
         nestedTable.addCell(navCell)
-
-        // Wrap it up and add to the main 2x2 grid
         outerCell.addElement(nestedTable)
         table.addCell(outerCell)
     }

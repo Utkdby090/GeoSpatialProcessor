@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.MenuBar
+import com.geospatial.processing.auth.LicenseManager
+import com.geospatial.processing.auth.LicenseStorage
 import com.geospatial.processing.data.repository.GeoRepository
 import com.geospatial.processing.domain.model.GeoRecord
 import com.geospatial.processing.domain.model.RecordStatus
@@ -29,6 +31,7 @@ import com.geospatial.processing.domain.usecase.PdfGenerationService
 
 // Imports from our new Enterprise Theme!
 import com.geospatial.processing.ui.theme.*
+import com.geospatial.processing.utils.TrialManager
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,6 +50,7 @@ fun FrameWindowScope.MainScreen(repository: GeoRepository) {
     val displayedRecords = remember(records, sortAscending) {
         if (sortAscending) records else records.reversed()
     }
+
 
     var selectedIndex = displayedRecords.indexOfFirst { it.id == selectedRecordId }.takeIf { it >= 0 }
     val selectedRecord = selectedIndex?.let { displayedRecords[it] }
@@ -421,5 +425,7 @@ fun NoProjectView(onImportClicked: () -> Unit) {
             Text("Import CSV", color = Color.White)
         }
     }
+
+
 }
 
