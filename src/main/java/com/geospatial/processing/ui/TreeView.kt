@@ -14,8 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,8 +34,8 @@ fun TreeView(
     records: List<GeoRecord>,
     selectedRecord: GeoRecord?,
     rootDir: String,
-    isAscending: Boolean,           // <--- NEW: Sort State
-    onToggleSort: () -> Unit,       // <--- NEW: Sort Toggle Handler
+    isAscending: Boolean,           // <--- NEW
+    onToggleSort: () -> Unit,
     onSelect: (GeoRecord) -> Unit,
     onImportClick: (File) -> Unit,
     onExportClick: (File) -> Unit,
@@ -52,7 +50,7 @@ fun TreeView(
             .fillMaxSize()
             .background(SurfaceWhite)
     ) {
-        // --- 1. THE ENTERPRISE HEADER ---
+        // --- 1. THE ENTERPRISE HEADER (NOW WITH BUTTONS!) ---
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -89,24 +87,8 @@ fun TreeView(
                     }
                 }
 
-                // RIGHT SIDE: The Quick Actions
+                // RIGHT SIDE: The Restored Quick Actions
                 Row(verticalAlignment = Alignment.CenterVertically) {
-
-                    // --- NEW: Sort Toggle Button ---
-                    IconButton(
-                        onClick = onToggleSort,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isAscending) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                            contentDescription = "Toggle Sort Order",
-                            tint = Color.White.copy(alpha = 0.9f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(4.dp))
-
                     // Export ZIP Button
                     IconButton(
                         onClick = {

@@ -9,13 +9,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.geospatial.processing.utils.HardwareUtil
+import com.geospatial.processing.utils.TrialManager
 
 @Composable
-fun LockScreen(onKeyEntered: (String) -> Unit) {
+fun LockScreen(
+    showExpiredMessage: Boolean = false, // Added this parameter to control the message
+    onKeyEntered: (String) -> Unit
+) {
     var keyInput by remember { mutableStateOf("") }
     val machineId = remember { HardwareUtil.getMachineId() }
+
+    // --- NEW: Dynamic Title Logic ---
+    val titleText = if (showExpiredMessage) {
+        "Your subscription has expired. Please enter a new key."
+    } else if (TrialManager.isTrialExpired()) {
+        "Your 15-day trial has ended. Please enter a license key."
+    } else {
+        "Enter License Key to Unlock"
+    }
 
     Box(
         modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A)),
@@ -30,12 +44,14 @@ fun LockScreen(onKeyEntered: (String) -> Unit) {
                 modifier = Modifier.padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Trial Expired", style = MaterialTheme.typography.h4, color = Color.Red, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(16.dp))
 
+                // Replaced the two hardcoded text blocks with your dynamic snippet
                 Text(
-                    "Your 15-day evaluation period has ended. Please contact support to receive an activation key.",
-                    style = MaterialTheme.typography.body1,
+                    text = titleText,
+                    color = Color.Red,
+                    style = MaterialTheme.typography.h6,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier.padding(bottom = 24.dp)
                 )
 

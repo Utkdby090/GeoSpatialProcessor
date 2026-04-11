@@ -58,24 +58,38 @@ data class GeoRecord(
 
     // --- NEW: Dynamic Title Resolution ---
 
-    // Checks the new column, but falls back to checking reportType for older CSV formats
-    val isFault: Boolean
-        get() = faultStatus.contains("fault", ignoreCase = true) ||
-                reportType.contains("fault", ignoreCase = true)
 
+    // Strict AND condition: BOTH columns must explicitly say "fault"
+    val isFault: Boolean
+        get() {
+            // 1. Sanitize the inputs to prevent accidental spaces from the CSV breaking the logic
+            val cleanStatus = faultStatus.trim()
+            val cleanType = reportType.trim()
+
+            // 2. Safely check for the word "fault" in both places
+            val statusHasFault = cleanStatus.contains("fault", ignoreCase = true)
+            val typeHasFault = cleanType.contains("fault", ignoreCase = true)
+
+            // 3. The OR Logic Gate
+            // If EITHER column says "fault", it correctly flags as a fault report.
+            return statusHasFault && typeHasFault
+        }
     // The single source of truth for the PDF Title and UI Header
     val resolvedReportTitle: String
         get() {
             val type = reportType.lowercase()
             return when {
-                type.contains("midspan") || type.contains("mid_span") ->
-                    if (isFault) "MidSpan Fault report" else "MidSpan no fault report"
+                // Catches "midspan", "mid_span", "mid_span_fault", etc.
+                type.contains("mid") ->
+                    if (isFault) "Mid Span Fault report" else "Mid Span no fault report"
 
-                type.contains("repairsleeve") || type.contains("repair_sleeve") ->
-                    if (isFault) "Repair Sleeve Fault report" else "repairSleeve no fault report"
+                // Catches "sleeve", "repair_sleeve", "sleeve_fault", etc.
+                type.contains("sleeve") ->
+                    if (isFault) "Sleeve Fault report" else "Sleeve no fault report"
 
-                else -> // Defaults to Tower
-                    if (isFault) "Tower Fault Report" else "Tower no Fault report"
+                // Defaults to Tower
+                else ->
+                    if (isFault) "Tower Fault report" else "Tower no fault report"
             }
         }
 

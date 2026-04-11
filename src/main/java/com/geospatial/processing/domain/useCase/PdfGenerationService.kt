@@ -39,42 +39,52 @@ class PdfGenerationService(private val repository: GeoRepository) {
     ): Int = withContext(Dispatchers.IO) {
         logger.info("Starting bulk ZIP export to: ${destZipFile.absolutePath}")
 
-        val records = repository.getAllRecords()
-        val total = records.size
-        if (total == 0) return@withContext 0
+        // 1. Fetch ALL records to accurately determine physical neighbors on the line
+        val masterRecords = repository.getAllRecords()
+
+        // 2. Filter ONLY the completed records (Green Dot) for actual PDF generation
+        val readyRecords = masterRecords.filter { it.status == RecordStatus.READY }
+
+        val total = readyRecords.size
+        if (total == 0) {
+            logger.warn("No READY records found to export.")
+            return@withContext 0
+        }
 
         var processedCount = 0
 
         try {
             ZipOutputStream(FileOutputStream(destZipFile)).use { zipOut ->
-                // --- IN-MEMORY GROUPING BY REPORT TYPE ---
-                val groupedRecords = records.groupBy { it.reportType }
+                // --- IN-MEMORY GROUPING BY REPORT TYPE (Only for READY records) ---
+                val groupedRecords = readyRecords.groupBy { it.reportType }
 
                 // Iterate through each group dynamically
                 for ((type, recordsGroup) in groupedRecords) {
 
-                    // --- NEW: DYNAMIC FOLDER NAMING ---
+                    // --- DYNAMIC FOLDER NAMING ---
                     val folderName = when {
                         type.contains("mid", ignoreCase = true) -> "Mid_Span_Reports"
                         type.contains("sleeve", ignoreCase = true) -> "Repair_Sleeve_Reports"
                         else -> "Tower_Reports"
                     }
 
-                    // --- NEW: USE withIndex() FOR NEIGHBOR LOOKUPS ---
-                    for ((index, record) in recordsGroup.withIndex()) {
+                    for (record in recordsGroup) {
 
-                        // Grab the neighboring tower numbers (null if at start/end)
-                        val prevItem = recordsGroup.getOrNull(index - 1)?.towerNumber
-                        val nextItem = recordsGroup.getOrNull(index + 1)?.towerNumber
+                        // --- THE NAVIGATOR FIX: Find neighbors using the MASTER list ---
+                        // This ensures we know the neighbor's name even if that neighbor is still a DRAFT!
+                        val masterIndex = masterRecords.indexOfFirst { it.id == record.id }
+                        val prevItem = masterRecords.getOrNull(masterIndex - 1)?.towerNumber
+                        val nextItem = masterRecords.getOrNull(masterIndex + 1)?.towerNumber
 
                         val safeTowerName = record.towerNumber.replace("[\\\\/:*?\"<>|]".toRegex(), "_")
 
-                        // Inject the folder path directly into the ZipEntry
-                        val entryName = "$folderName/Tower_${safeTowerName}_Report.pdf"
+                        // Robust fault prefix for the filename
+                        val faultStatusPrefix = if (record.isFault) "FAULT" else "NORMAL"
+                        val entryName = "$folderName/${faultStatusPrefix}_Tower_${safeTowerName}_Report.pdf"
 
                         zipOut.putNextEntry(ZipEntry(entryName))
 
-                        // Pass the neighbors into the single PDF writer
+                        // Pass the true physical neighbors into the PDF writer
                         writeSingleTowerPdf(record, rootDir, zipOut, prevItem, nextItem)
 
                         zipOut.closeEntry()
@@ -90,7 +100,6 @@ class PdfGenerationService(private val repository: GeoRepository) {
         return@withContext total
     }
 
-    // --- UPDATED SIGNATURE: Accepts prevItem and nextItem ---
     private fun writeSingleTowerPdf(
         record: GeoRecord,
         rootDir: String,
@@ -107,7 +116,7 @@ class PdfGenerationService(private val repository: GeoRepository) {
         val isMidSpan = type.contains("mid")
         val isSleeve = type.contains("sleeve")
 
-        // 1. USE THE BULLETPROOF TITLE FROM GEORECORD
+
         val documentTitleText = record.resolvedReportTitle.uppercase()
 
         // 2. DYNAMIC PDF IMAGE LABELS

@@ -94,7 +94,7 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
 
             //reportType
             reportType = this.reportType,
-
+            faultStatus = this.faultStatus,
             status = this.status
         )
     }
