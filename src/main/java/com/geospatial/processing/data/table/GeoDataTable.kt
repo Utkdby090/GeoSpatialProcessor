@@ -31,7 +31,7 @@ object GeoDataTable : IntIdTable("geo_data") {
     val ambientTemp = varchar("ambient_temp", 255).default("")
 
     // --- NEW: Load Data ---
-    val loadValue = varchar("load_val", 255).default("")      // General load
+    //val loadValue = varchar("load_val", 255).default("")      // General load
     val loadDataCkt1 = varchar("load_data_ckt3", 255).nullable()
     val loadDataCkt2 = varchar("load_data_ckt4", 255).nullable()
 
@@ -52,6 +52,7 @@ object GeoDataTable : IntIdTable("geo_data") {
 
     val reportType = varchar("report_type", 50).default("TOWER")
     val faultStatus = varchar("fault_status", 50).default("Normal")
+    val companyName = varchar("company_name", 255).default("")
 }
 
 object AuditLogs : Table("audit_logs") {

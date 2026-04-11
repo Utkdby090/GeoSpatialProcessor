@@ -82,7 +82,7 @@ class GeoRepository {
         humidity = record.humidity
         emissivity = record.emissivity
         ambientTemp = record.ambientTemp
-        loadValue = record.loadValue
+       // loadValue = record.loadValue
         faultDescription = record.faultDescription
         faultTemp = record.faultTemp
         thermalImage = record.thermalImage
@@ -92,6 +92,7 @@ class GeoRepository {
         reportType = record.reportType
         status = record.status
         faultStatus = record.faultStatus
+        companyName = record.companyName
     }
 
     /**

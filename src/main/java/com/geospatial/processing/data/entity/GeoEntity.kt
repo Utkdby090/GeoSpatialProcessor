@@ -31,7 +31,7 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
     var ambientTemp by GeoDataTable.ambientTemp
 
     // --- Load Data ---
-    var loadValue by GeoDataTable.loadValue
+  //  var loadValue by GeoDataTable.loadValue
     var loadDataCkt1 by GeoDataTable.loadDataCkt1
     var loadDataCkt2 by GeoDataTable.loadDataCkt2
 
@@ -53,6 +53,7 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
     var reportType by GeoDataTable.reportType
 
     var faultStatus by GeoDataTable.faultStatus
+    var companyName by GeoDataTable.companyName
 
     /**
      * Mapper function: Entity (DB) -> Domain Model (UI)
@@ -77,7 +78,7 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
             humidity = this.humidity,
             emissivity = this.emissivity,
             ambientTemp = this.ambientTemp,
-            loadValue = this.loadValue,
+           // loadValue = this.loadValue,
             loadDataCkt1 = this.loadDataCkt1,
             loadDataCkt2 = this.loadDataCkt2,
 
@@ -95,7 +96,8 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
             //reportType
             reportType = this.reportType,
             faultStatus = this.faultStatus,
-            status = this.status
+            status = this.status,
+            companyName = this.companyName
         )
     }
 }

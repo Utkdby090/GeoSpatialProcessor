@@ -31,7 +31,7 @@ data class GeoRecord(
     val ambientTemp: String = "",
 
     // --- Load Data ---
-    val loadValue: String = "",
+   // val loadValue: String = "",
     val loadDataCkt1: String? = null,
     val loadDataCkt2: String? = null,
 
@@ -53,7 +53,8 @@ data class GeoRecord(
 
     // --- NEW: Fault Status Mapping ---
     // Defaults to Normal so UI and logic won't break if column is missing
-    val faultStatus: String = "Normal"
+    val faultStatus: String = "Normal",
+    val companyName: String = ""
 ) {
 
     // --- NEW: Dynamic Title Resolution ---

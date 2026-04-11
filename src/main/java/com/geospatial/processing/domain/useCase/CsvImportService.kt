@@ -72,6 +72,7 @@ class CsvImportService(private val repository: GeoRepository) {
                 // --- EXTRACTION AND CLEANUP FOR REPORT TYPE ---
                 val rawReportType = getSafeByName(record, "report_Type").ifBlank { "tower" }
                 val rawFaultStatus = getSafeByName(record, "Fault").ifBlank { "normal" }
+                val companyNameStr = getSafeByName(record, "Company Name")
 
 
                 if (lineName.isNotBlank() && towerNum.isNotBlank()) {
@@ -95,7 +96,7 @@ class CsvImportService(private val repository: GeoRepository) {
                         ambientTemp = ambTemp,
 
                         // Load Data (Using CKT3 as general load if needed, plus specifics)
-                        loadValue = loadValCkt1,
+                       // loadValue = loadValCkt1,
                         loadDataCkt1 = loadValCkt1,
                         loadDataCkt2 = loadValCkt2,
 
@@ -107,6 +108,7 @@ class CsvImportService(private val repository: GeoRepository) {
                         // The New Report Type Field
                         reportType = rawReportType,
                         faultStatus = rawFaultStatus,
+                        companyName = companyNameStr,
 
                         // Media
                         thermalImage = null,
