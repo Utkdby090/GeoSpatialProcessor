@@ -150,11 +150,11 @@ class PdfGenerationService(private val repository: GeoRepository) {
 
             // Bottom Left: Conditional Navigator Logic
             val slot3ImageBytes = getImageBytes(record.resolveTowerImage(rootDir))
-            if (isMidSpan) {
-                // MidSpan reports get a clean, standard image cell with no navigator arrows
+            if (isMidSpan || isSleeve) {
+                // MidSpan report and sleeve report get a clean, standard image cell with no navigator arrows
                 addImageCell(imagesTable, labelSlot3, slot3ImageBytes)
             } else {
-                // Tower and Sleeve reports keep the dynamic navigator
+                // Tower report keep the dynamic navigator
                 addTowerImageWithNavigatorCell(
                     imagesTable,
                     labelSlot3,
