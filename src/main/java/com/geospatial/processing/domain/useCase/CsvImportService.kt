@@ -66,13 +66,14 @@ class CsvImportService(private val repository: GeoRepository) {
                 val faultTemp = getSafeByName(record, "Fault Temp.")
                 val riseTemp = getSafeByName(record, "Rise Temp.")
 
-                // 👇 NEW: Extract the Fault Description column
+
                 val faultDesc = getSafeByName(record, "Fault Description")
 
                 // --- EXTRACTION AND CLEANUP FOR REPORT TYPE ---
                 val rawReportType = getSafeByName(record, "report_Type").ifBlank { "tower" }
                 val rawFaultStatus = getSafeByName(record, "Fault").ifBlank { "normal" }
                 val companyNameStr = getSafeByName(record, "Company Name")
+                val directionStr = getSafeByName(record, "Direction")
 
 
                 if (lineName.isNotBlank() && towerNum.isNotBlank()) {
@@ -115,8 +116,10 @@ class CsvImportService(private val repository: GeoRepository) {
                         visualImage = null,
                         towerImage = null,
                         extraImage = null,
+                        direction = directionStr,
 
                         status = RecordStatus.DRAFT
+
                     )
 
                     repository.saveRecord(newRecord)
