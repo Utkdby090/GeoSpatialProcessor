@@ -182,7 +182,16 @@ class PdfGenerationService(private val repository: GeoRepository) {
             addMetricCell(metricsTable, "Date Captured", record.capturedDate ?: "N/A")
             addMetricCell(metricsTable, "Time Captured", record.capturedTime ?: "N/A")
             addMetricCell(metricsTable, "Coordinates", "${record.latitude}, ${record.longitude}")
-            addMetricCell(metricsTable, "Direction", record.direction ?: "N/A")
+
+            // --> CONDITIONAL DIRECTION LOGIC
+            if (isMidSpan || isSleeve) {
+                // Insert a hidden spacer to keep the grid perfectly balanced for non-tower reports
+                addMetricCell(metricsTable, "", "")
+            } else {
+                // Only show Direction for standard Tower reports
+                addMetricCell(metricsTable, "Direction", record.direction ?: "N/A")
+            }
+
             addMetricCell(metricsTable, "Phase", record.phase ?: "N/A")
             addMetricCell(metricsTable, "Side", record.side ?: "N/A")
 
