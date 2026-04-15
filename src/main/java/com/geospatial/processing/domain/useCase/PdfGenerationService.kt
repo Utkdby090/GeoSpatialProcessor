@@ -55,10 +55,12 @@ class PdfGenerationService(private val repository: GeoRepository) {
                 val groupedRecords = readyRecords.groupBy { it.reportType }
 
                 for ((type, recordsGroup) in groupedRecords) {
-                    val folderName = when {
-                        type.contains("mid", ignoreCase = true) -> "Mid_Span_Reports"
-                        type.contains("sleeve", ignoreCase = true) -> "Repair_Sleeve_Reports"
-                        else -> "Tower_Reports"
+
+                    // The destructured Pair dynamically assigns the folder and the prefix
+                    val (folderName, filePrefix) = when {
+                        type.contains("mid", ignoreCase = true) -> Pair("Mid_Span_Reports", "MidSpan")
+                        type.contains("sleeve", ignoreCase = true) -> Pair("Repair_Sleeve_Reports", "Repair_Sleeve")
+                        else -> Pair("Tower_Reports", "Tower")
                     }
 
                     for (record in recordsGroup) {
@@ -68,7 +70,9 @@ class PdfGenerationService(private val repository: GeoRepository) {
 
                         val safeTowerName = record.towerNumber.replace("[\\\\/:*?\"<>|]".toRegex(), "_")
                         val faultStatusPrefix = if (record.isFault) "FAULT" else "NORMAL"
-                        val entryName = "$folderName/${faultStatusPrefix}_Tower_${safeTowerName}_Report.pdf"
+
+                        // Using the dynamic filePrefix variable instead of hardcoded "Tower"
+                        val entryName = "$folderName/${faultStatusPrefix}_${filePrefix}_${safeTowerName}_Report.pdf"
 
                         zipOut.putNextEntry(ZipEntry(entryName))
                         writeSingleTowerPdf(record, rootDir, zipOut, prevItem, nextItem)
