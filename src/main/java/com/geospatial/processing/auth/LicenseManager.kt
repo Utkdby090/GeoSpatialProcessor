@@ -10,7 +10,7 @@ import java.time.temporal.ChronoUnit
 object LicenseManager {
 
     // IMPORTANT: Paste your Spring Boot PUBLIC key here
-    private const val PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy6XjXo+OH4n5sqaRw+GHfi/XbyvqD8OsAVFW1CPxfn3jKOIEpsbEvERQ6433ROO4TBErHP723+C335hfPXU1NMj6gkCedz3RmABX9uCo/C5CbQbMZES2/PiG60pUnxj1WibbawnokMIpaOQBMY+zRw1ilttHEi24wOxD6gcoaoL173NdD/p2DeFMp+mhZWYgnilVRbIprfQIpXmzapCM4hYgo8NLni1Amm5oz+HmK5lIU4jO6SEFI3wE79VlzRqcUFn8Qs0JiSM/RBPRefpg9oIMslbmMSQ9o2gSF22EvZOUrEWybwueaM1ppT8p0nBAg5HOL48J2n0xJ7qd6XtGvQIDAQAB"
+    private const val PUBLIC_KEY_BASE64 = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8XGvR5J3Upt2LkS+loli6jrr7zAfL7QqBkaqIXGikAnRzGpw9Vu5WoMrhzwG7L34ltzACv+jsYZyl++l02vzlTKPCkGdpPslNhoqcCaPB1+PalOY1XvgYRQiT0TcYazd8Klz5o8qQ3M5KugyI1Klbw45zWHIKZY26S/D5wxQY71NAPq40Zl+708CfZdZyaFXJtYrkMcXbdoNmoo82uprtvMfJEWVLzVm7ab5cm+2c5Tae6Jv8wHnOi2Sxtapl4DJ0/jKuw1sGU1oUR7jZHL0OjizMH/zRTt8eYRoP2Kv4BYFNVXUsiILIIFqstd1s8aeXAEbvQncRGWTqJUAmRAvGQIDAQAB"
 
     sealed class LicenseStatus {
         object Valid : LicenseStatus()

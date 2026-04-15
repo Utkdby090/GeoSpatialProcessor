@@ -25,7 +25,7 @@ import kotlin.system.exitProcess
 
 fun main() = application {
 
-    LicenseStorage.clearLicense()
+
 
     // State to control what the Lock Screen window title says
     var lockoutReason by remember { mutableStateOf("Activation Required") }
