@@ -7,7 +7,6 @@ import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,7 +39,7 @@ fun DetailView(
     var lat by remember(record) { mutableStateOf(record.latitude.toString()) }
     var long by remember(record) { mutableStateOf(record.longitude.toString()) }
 
-    // NEW: Location Extenders & Time
+    // Location Extenders & Time
     var phase by remember(record) { mutableStateOf(record.phase ?: "") }
     var side by remember(record) { mutableStateOf(record.side ?: "") }
     var direction by remember(record) { mutableStateOf(record.direction ?: "") }
@@ -51,12 +50,13 @@ fun DetailView(
     var emissivity by remember(record) { mutableStateOf(record.emissivity) }
     var ambientTemp by remember(record) { mutableStateOf(record.ambientTemp) }
 
-    // NEW: Load Data
-    //var loadValue by remember(record) { mutableStateOf(record.loadValue) }
-    var loadDataCkt1 by remember(record) { mutableStateOf(record.loadDataCkt1 ?: "") }
-    var loadDataCkt2 by remember(record) { mutableStateOf(record.loadDataCkt2 ?: "") }
+    // --- NEW: DYNAMIC CIRCUIT STATE ---
+    // A SnapshotStateMap natively observes changes for Compose UI
+    val dynamicCircuitsState = remember(record) {
+        mutableStateMapOf<String, String>().apply { putAll(record.dynamicCircuits) }
+    }
 
-    // NEW: Fault Analysis
+    // Fault Analysis
     var faultDesc by remember(record) { mutableStateOf(record.faultDescription) }
     var faultTemp by remember(record) { mutableStateOf(record.faultTemp) }
     var riseTemp by remember(record) { mutableStateOf(record.riseTemp ?: "") }
@@ -102,14 +102,14 @@ fun DetailView(
                 direction = direction,
                 capturedDate = capturedDate,
                 capturedTime = capturedTime,
-                loadDataCkt1 = loadDataCkt1,
-                loadDataCkt2 = loadDataCkt2,
-                riseTemp = riseTemp,
 
+                // Convert state map back to a standard Kotlin Map
+                dynamicCircuits = dynamicCircuitsState.toMap(),
+
+                riseTemp = riseTemp,
                 humidity = humidity,
                 emissivity = emissivity,
                 ambientTemp = ambientTemp,
-                //loadValue = loadValue,
                 faultDescription = faultDesc,
                 faultTemp = faultTemp,
                 thermalImage = imgThermal,
@@ -175,7 +175,6 @@ fun DetailView(
                     label = { Text("Report Classification") },
                     modifier = Modifier.fillMaxWidth(),
                     colors = TextFieldDefaults.outlinedTextFieldColors(
-                        // Dynamic colors: Light Orange/Red for Faults, Light Blue for Normal
                         backgroundColor = if (record.isFault) Color(0xFFFDF2E9) else Color(0xFFE8F4F8),
                         disabledTextColor = if (record.isFault) Color.Red else Color.DarkGray
                     ),
@@ -187,43 +186,41 @@ fun DetailView(
                 // --- SECTION 2: IMAGES ---
                 SectionHeader("Inspection Images")
 
-                // --- DYNAMIC OFFICIAL PDF LABELS ---
-                val isMidSpan = record.reportType == "mid_span"
+                val type = record.reportType.lowercase()
+                val isMidSpan = type.contains("mid")
+                val isSleeve = type.contains("sleeve")
+
                 val lblLocation = "Location"
                 val lblThermal = if (isMidSpan) "THERMAL Image" else "Thermal Image"
-                val lblTowerSpan = if (isMidSpan) "SPAN Image" else "Tower Image"
+                val lblTowerSpan = when {
+                    isMidSpan -> "SPAN Image"
+                    isSleeve -> "SLEEVE Image"
+                    else -> "Tower Image"
+                }
                 val lblRgb = "RGB Image"
 
                 Column {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        // Top Left: Location Map (mapped to visualImage variable)
                         ImageSlot(lblLocation, resolvedVisual, false) { imgVisual = it }
-
-                        // Top Right: Thermal IR (mapped to thermalImage variable)
                         ImageSlot(lblThermal, resolvedThermal, false) { imgThermal = it }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // THE PERFECTLY BALANCED BOTTOM ROW
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
 
-                        // 1. The Navigator (Fixed narrow width, pushed to the left)
-                        TowerSequenceNavigator(
-                            previousItem = prevItemName,
-                            currentItem = record.towerNumber, // Or span/sleeve number
-                            nextItem = nextItemName,
-                            modifier = Modifier.width(65.dp)
-                        )
+                        if (!isMidSpan && !isSleeve) {
+                            TowerSequenceNavigator(
+                                previousItem = prevItemName,
+                                currentItem = record.towerNumber,
+                                nextItem = nextItemName,
+                                modifier = Modifier.width(65.dp)
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                        }
 
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        // 2. The Bottom-Left Image (Takes 50% of REMAINING space)
                         ImageSlot(lblTowerSpan, resolvedTower, false) { imgTower = it }
-
                         Spacer(modifier = Modifier.width(16.dp))
-
-                        // 3. The Bottom-Right Image (Takes 50% of REMAINING space)
                         ImageSlot(lblRgb, resolvedExtra, false) { imgExtra = it }
                     }
                 }
@@ -237,11 +234,34 @@ fun DetailView(
                     ValidatedTextField(emissivity, { emissivity = it }, "Emissivity", false, Modifier.weight(1f))
                     ValidatedTextField(ambientTemp, { ambientTemp = it }, "Amb. Temp (°C)", false, Modifier.weight(1f))
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-               //     ValidatedTextField(loadValue, { loadValue = it }, "General Load", false, Modifier.weight(1f))
-                    ValidatedTextField(loadDataCkt1, { loadDataCkt1 = it }, "Load CKT1", false, Modifier.weight(1f))
-                    ValidatedTextField(loadDataCkt2, { loadDataCkt2 = it }, "Load CKT2", false, Modifier.weight(1f))
+
+                // --- DYNAMIC CIRCUITS UI LOOP ---
+                if (dynamicCircuitsState.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Dynamic Load Circuits", style = MaterialTheme.typography.subtitle2, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Extract the keys and chunk them to render exactly 3 TextFields per row
+                    val keys = dynamicCircuitsState.keys.toList()
+                    keys.chunked(3).forEach { rowKeys ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            rowKeys.forEach { key ->
+                                ValidatedTextField(
+                                    value = dynamicCircuitsState[key] ?: "",
+                                    onValueChange = { newValue -> dynamicCircuitsState[key] = newValue },
+                                    label = key, // Dynamic label from the CSV header
+                                    isError = false,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+
+                            // If a row has fewer than 3 items, inject spacers to keep the columns aligned
+                            repeat(3 - rowKeys.size) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -269,7 +289,6 @@ fun ValidatedTextField(value: String, onValueChange: (String) -> Unit, label: St
 }
 
 // --- HELPER 2: Image Slot ---
-
 @Composable
 fun RowScope.ImageSlot(label: String, imageSource: ImageSource, isError: Boolean, onUpload: (ByteArray?) -> Unit) {
     val bitmap: ImageBitmap? = remember(imageSource) {
@@ -294,16 +313,13 @@ fun RowScope.ImageSlot(label: String, imageSource: ImageSource, isError: Boolean
             if (bitmap != null) {
                 Image(bitmap = bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
 
-                // --- RESTORED: RED DUSTBIN DELETE BUTTON ---
-
                 IconButton(
-                    onClick = { onUpload(ByteArray(0)) }, // Send an empty byte array to clear
+                    onClick = { onUpload(ByteArray(0)) },
                     modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.White.copy(0.9f), RoundedCornerShape(50)).size(36.dp)
                 ) {
                     Icon(Icons.Default.Delete, contentDescription = "Clear Image", tint = Color.Red)
                 }
 
-                // --- RESTORED: LOCAL FILE BADGE ---
                 if (imageSource is ImageSource.FromFile) {
                     Text("Local File", modifier = Modifier.align(Alignment.BottomStart).background(Color.Black.copy(0.6f), RoundedCornerShape(topEnd = 8.dp)).padding(horizontal = 8.dp, vertical = 4.dp), color = Color.White, style = MaterialTheme.typography.overline)
                 }
@@ -320,8 +336,6 @@ fun SectionHeader(title: String) {
     Spacer(modifier = Modifier.height(8.dp))
 }
 
-// --- GLOBAL CACHE FOR IMAGE PICKER ---
-// This variable remembers the last folder you were in across the entire session
 private var lastVisitedDirectory: File? = null
 
 fun pickImageFile(): File? {
@@ -329,7 +343,6 @@ fun pickImageFile(): File? {
     chooser.dialogTitle = "Select Site Photograph"
     chooser.fileFilter = FileNameExtensionFilter("Images", "jpg", "jpeg", "png")
 
-    // If we have a cached directory, tell the chooser to start there
     lastVisitedDirectory?.let {
         chooser.currentDirectory = it
     }
@@ -337,7 +350,6 @@ fun pickImageFile(): File? {
     val result = chooser.showOpenDialog(null)
 
     return if (result == JFileChooser.APPROVE_OPTION) {
-        // Save the directory we just used into the cache for next time!
         lastVisitedDirectory = chooser.currentDirectory
         chooser.selectedFile
     } else {

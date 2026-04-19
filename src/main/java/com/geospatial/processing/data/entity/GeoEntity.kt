@@ -5,6 +5,8 @@ import com.geospatial.processing.domain.model.GeoRecord
 import org.jetbrains.exposed.dao.IntEntity
 import org.jetbrains.exposed.dao.IntEntityClass
 import org.jetbrains.exposed.dao.id.EntityID
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
     companion object : IntEntityClass<GeoEntity>(GeoDataTable)
@@ -30,10 +32,8 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
     var emissivity by GeoDataTable.emissivity
     var ambientTemp by GeoDataTable.ambientTemp
 
-    // --- Load Data ---
-  //  var loadValue by GeoDataTable.loadValue
-    var loadDataCkt1 by GeoDataTable.loadDataCkt1
-    var loadDataCkt2 by GeoDataTable.loadDataCkt2
+    // --- Dynamic Load Data ---
+    var dynamicCircuits by GeoDataTable.dynamicCircuits
 
     // --- Fault Analysis ---
     var faultDescription by GeoDataTable.faultDescription
@@ -49,9 +49,7 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
     // --- Meta ---
     var status by GeoDataTable.status
     var updatedAt by GeoDataTable.updatedAt
-
     var reportType by GeoDataTable.reportType
-
     var faultStatus by GeoDataTable.faultStatus
     var companyName by GeoDataTable.companyName
 
@@ -59,6 +57,15 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
      * Mapper function: Entity (DB) -> Domain Model (UI)
      */
     fun toDomain(): GeoRecord {
+
+        // 1. Convert the JSON string back into a Kotlin Map safely
+        val mapType = object : TypeToken<Map<String, String>>() {}.type
+        val parsedCircuits: Map<String, String> = try {
+            Gson().fromJson(this.dynamicCircuits, mapType) ?: emptyMap()
+        } catch (e: Exception) {
+            emptyMap() // Fallback to an empty map if parsing fails
+        }
+
         return GeoRecord(
             id = this.id.value,
             lineName = this.lineName,
@@ -78,9 +85,9 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
             humidity = this.humidity,
             emissivity = this.emissivity,
             ambientTemp = this.ambientTemp,
-           // loadValue = this.loadValue,
-            loadDataCkt1 = this.loadDataCkt1,
-            loadDataCkt2 = this.loadDataCkt2,
+
+            // --- NEW: Assign parsed dynamic circuits here ---
+            dynamicCircuits = parsedCircuits,
 
             // Faults
             faultDescription = this.faultDescription,
@@ -93,7 +100,7 @@ class GeoEntity(id: EntityID<Int>) : IntEntity(id) {
             towerImage = this.towerImage,
             extraImage = this.extraImage,
 
-            //reportType
+            // Meta
             reportType = this.reportType,
             faultStatus = this.faultStatus,
             status = this.status,

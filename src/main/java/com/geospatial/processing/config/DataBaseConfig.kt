@@ -10,7 +10,7 @@ import org.jetbrains.exposed.sql.transactions.transaction
 import java.io.File
 
 object DatabaseConfig {
-    private const val DB_FILE_NAME = "geospatial_v13.db"
+    private const val DB_FILE_NAME = "geospatial_v14.db"
 
     fun init() {
         // 1. Get the current Windows user's home directory (e.g., C:\Users\YourName)

@@ -32,8 +32,10 @@ data class GeoRecord(
 
     // --- Load Data ---
    // val loadValue: String = "",
-    val loadDataCkt1: String? = null,
-    val loadDataCkt2: String? = null,
+    //val loadDataCkt1: String? = null,
+    //val loadDataCkt2: String? = null,
+    //putting new dynamic headers values.
+    val dynamicCircuits: Map<String, String> = emptyMap(),
 
     // --- Faults ---
     val faultDescription: String = "",
