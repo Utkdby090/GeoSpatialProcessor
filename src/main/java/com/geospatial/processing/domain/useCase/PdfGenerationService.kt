@@ -13,7 +13,6 @@ import java.awt.Color
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
-import java.time.format.DateTimeFormatter
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -142,7 +141,6 @@ class PdfGenerationService(private val repository: GeoRepository) {
             document.add(headerTable)
 
             // --- 3. IMAGES GRID ---
-
             val imagesTable = PdfPTable(2).apply {
                 widthPercentage = 100f
                 setSpacingAfter(10f)
@@ -155,10 +153,8 @@ class PdfGenerationService(private val repository: GeoRepository) {
             // Bottom Left: Conditional Navigator Logic
             val slot3ImageBytes = getImageBytes(record.resolveTowerImage(rootDir))
             if (isMidSpan || isSleeve ) {
-                // MidSpan report and sleeve report get a clean, standard image cell with no navigator arrows
                 addImageCell(imagesTable, labelSlot3, slot3ImageBytes)
             } else {
-                // Tower report keep the dynamic navigator
                 addTowerImageWithNavigatorCell(
                     imagesTable,
                     labelSlot3,
@@ -187,12 +183,9 @@ class PdfGenerationService(private val repository: GeoRepository) {
             addMetricCell(metricsTable, "Time Captured", record.capturedTime ?: "N/A")
             addMetricCell(metricsTable, "Coordinates", "${record.latitude}, ${record.longitude}")
 
-            // --> CONDITIONAL DIRECTION LOGIC
             if (isMidSpan || isSleeve) {
-                // Insert a hidden spacer to keep the grid perfectly balanced for non-tower reports
                 addMetricCell(metricsTable, "", "")
             } else {
-                // Only show Direction for standard Tower reports
                 addMetricCell(metricsTable, "Direction", record.direction ?: "N/A")
             }
 
@@ -204,13 +197,23 @@ class PdfGenerationService(private val repository: GeoRepository) {
             addMetricCell(metricsTable, "Ambient Temp", formatWithUnit(record.ambientTemp, "°C"))
             addMetricCell(metricsTable, "Humidity", formatWithUnit(record.humidity, "%"))
 
-            // --> FIXED GRID ALIGNMENT: Emissivity and a blank spacer block
+            // Emissivity completes the half-row, so we add a blank spacer to finish the row neatly.
             addMetricCell(metricsTable, "Emissivity", record.emissivity)
-            addMetricCell(metricsTable, "", "") // Hidden spacer to keep the grid perfectly balanced
+            addMetricCell(metricsTable, "", "")
 
-            // Keeps the load circuits neatly on their own row
-            addMetricCell(metricsTable, "Load CKT1", formatWithUnit(record.loadDataCkt1 ?: "", "A"))
-            addMetricCell(metricsTable, "Load CKT2", formatWithUnit(record.loadDataCkt2 ?: "", "A"))
+            // --- NEW: DYNAMIC CIRCUITS LOOP ---
+            // Iterates through whatever headers were found in the CSV and prints them.
+            var circuitCount = 0
+            record.dynamicCircuits.forEach { (headerName, headerValue) ->
+                addMetricCell(metricsTable, headerName.uppercase(), headerValue)
+                circuitCount++
+            }
+
+            // If an odd number of dynamic circuits were added, the 4-column grid is missing 2 cells.
+            // This spacer prevents the table from breaking or misaligning.
+            if (circuitCount % 2 != 0) {
+                addMetricCell(metricsTable, "", "")
+            }
 
             // PARTITION 3: Fault Analysis
             metricsTable.addCell(createSectionHeader("FAULT ANALYSIS", 4))
@@ -227,7 +230,7 @@ class PdfGenerationService(private val repository: GeoRepository) {
             val displayCompany = if (record.companyName.isNotBlank()) record.companyName.uppercase() else "GEOSPATIAL PROCESSING"
             val footerText = "Report created by : $displayCompany"
             val footer = Paragraph(footerText, Font(Font.HELVETICA, 10f, Font.BOLD, Color.GRAY)).apply {
-                alignment = Element.ALIGN_RIGHT // Keeps it neatly in the bottom right corner
+                alignment = Element.ALIGN_RIGHT
             }
             document.add(footer)
 
@@ -267,7 +270,6 @@ class PdfGenerationService(private val repository: GeoRepository) {
     }
 
     private fun addMetricCell(table: PdfPTable, label: String, value: String) {
-        // If the label is intentionally blank (for our spacer), clear the background color
         if (label.isBlank()) {
             table.addCell(PdfPCell(Phrase("")).apply { border = Rectangle.NO_BORDER })
             table.addCell(PdfPCell(Phrase("")).apply { border = Rectangle.NO_BORDER })

@@ -22,7 +22,7 @@ fun LockScreen(
     var keyInput by remember { mutableStateOf("") }
     val machineId = remember { HardwareUtil.getMachineId() }
 
-    // --- NEW: Dynamic Title Logic ---
+
     val titleText = if (showExpiredMessage) {
         "Your subscription has expired. Please enter a new key."
     } else if (TrialManager.isTrialExpired()) {
@@ -55,7 +55,6 @@ fun LockScreen(
                     modifier = Modifier.padding(bottom = 24.dp)
                 )
 
-                // Display Machine ID for the user to send to you
                 Text("Your Machine ID:", style = MaterialTheme.typography.caption)
                 Text(
                     machineId,

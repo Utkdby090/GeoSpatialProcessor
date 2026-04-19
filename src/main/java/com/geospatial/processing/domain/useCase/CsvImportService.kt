@@ -40,6 +40,16 @@ class CsvImportService(private val repository: GeoRepository) {
 
             logger.info("Found {} records in CSV. Beginning database insertion.", total)
 
+            // 1. Define standard headers to ignore when extracting dynamic circuits.
+            // Converted to lowercase for case-insensitive matching.
+            val standardHeaders = setOf(
+                "sr. no.", "tower no.", "line name", "ckt", "lat.", "long.",
+                "phase", "side", "captured date", "captured time", "ambeint temp.",
+                "humidity", "emissivity", "fault temp.", "rise temp.", "fault description",
+                "fault description ", // Trailing space catch
+                "report_type", "fault", "company name", "direction"
+            )
+
             for ((index, record) in records.withIndex()) {
 
                 // --- Extract Core Data ---
@@ -49,24 +59,20 @@ class CsvImportService(private val repository: GeoRepository) {
                 val latStr = getSafeByName(record, "Lat.")
                 val longStr = getSafeByName(record, "Long.")
 
-                // --- Extract New Extenders (Matched to Sample.csv) ---
+                // --- Extract New Extenders ---
                 val phase = getSafeByName(record, "Phase")
                 val side = getSafeByName(record, "Side")
                 val capturedDate = getSafeByName(record, "Captured Date")
                 val capturedTime = getSafeByName(record, "Captured Time")
 
-                // --- Extract Environment & Load ---
-                val ambTemp = getSafeByName(record, "Ambeint Temp.") // Note: Keeping typo matched to CSV
+                // --- Extract Environment ---
+                val ambTemp = getSafeByName(record, "Ambeint Temp.")
                 val humidity = getSafeByName(record, "Humidity")
                 val emissivity = getSafeByName(record, "Emissivity")
-                val loadValCkt1 = getSafeByName(record, "Load Data CKT1")
-                val loadValCkt2 = getSafeByName(record, "Load Data CKT2")
 
                 // --- Extract Fault Data ---
                 val faultTemp = getSafeByName(record, "Fault Temp.")
                 val riseTemp = getSafeByName(record, "Rise Temp.")
-
-
                 val faultDesc = getSafeByName(record, "Fault Description")
 
                 // --- EXTRACTION AND CLEANUP FOR REPORT TYPE ---
@@ -75,6 +81,15 @@ class CsvImportService(private val repository: GeoRepository) {
                 val companyNameStr = getSafeByName(record, "Company Name")
                 val directionStr = getSafeByName(record, "Direction")
 
+                // --- 2. DYNAMIC CIRCUIT EXTRACTION ---
+                val dynamicMap = mutableMapOf<String, String>()
+                record.toMap().forEach { (header, value) ->
+                    val cleanHeader = header.trim()
+                    // If the header is NOT in our standard list, it is dynamic load data
+                    if (cleanHeader.isNotEmpty() && !standardHeaders.contains(cleanHeader.lowercase())) {
+                        dynamicMap[cleanHeader] = value.trim()
+                    }
+                }
 
                 if (lineName.isNotBlank() && towerNum.isNotBlank()) {
                     val newRecord = GeoRecord(
@@ -96,30 +111,27 @@ class CsvImportService(private val repository: GeoRepository) {
                         emissivity = emissivity,
                         ambientTemp = ambTemp,
 
-                        // Load Data (Using CKT3 as general load if needed, plus specifics)
-                       // loadValue = loadValCkt1,
-                        loadDataCkt1 = loadValCkt1,
-                        loadDataCkt2 = loadValCkt2,
+                        // --- Pass the dynamic circuits map here ---
+                        dynamicCircuits = dynamicMap,
 
                         // Faults
                         faultDescription = faultDesc,
                         faultTemp = faultTemp,
                         riseTemp = riseTemp,
 
-                        // The New Report Type Field
+                        // Report Type & Meta
                         reportType = rawReportType,
                         faultStatus = rawFaultStatus,
                         companyName = companyNameStr,
+                        direction = directionStr,
 
                         // Media
                         thermalImage = null,
                         visualImage = null,
                         towerImage = null,
                         extraImage = null,
-                        direction = directionStr,
 
                         status = RecordStatus.DRAFT
-
                     )
 
                     repository.saveRecord(newRecord)
