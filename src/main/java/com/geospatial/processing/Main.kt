@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -25,38 +26,30 @@ import kotlin.system.exitProcess
 
 fun main() = application {
 
-
-
-    // State to control what the Lock Screen window title says
     var lockoutReason by remember { mutableStateOf("Activation Required") }
 
     // 1. EVALUATE SECURITY STATE ON STARTUP
     val initialAuthState = remember {
         val savedLicense = LicenseStorage.getLicense()
 
-        // Priority 1: Check for a valid permanent/subscription key
         if (savedLicense != null) {
             val status = LicenseManager.verifyLicense(savedLicense)
             when (status) {
-                is LicenseManager.LicenseStatus.Valid -> {
-                    return@remember true // App is fully licensed and within date
-                }
+                is LicenseManager.LicenseStatus.Valid -> return@remember true
                 is LicenseManager.LicenseStatus.Expired -> {
-                    LicenseStorage.clearLicense() // Clean up expired keys
+                    LicenseStorage.clearLicense()
                     lockoutReason = "Subscription Expired - Renewal Required"
                     return@remember false
                 }
                 else -> {
-                    LicenseStorage.clearLicense() // Clean up tampered/invalid keys
+                    LicenseStorage.clearLicense()
                     lockoutReason = "Invalid License - Activation Required"
                     return@remember false
                 }
             }
         }
 
-        // Priority 2: Check if the 15-day offline trial is still valid
         val isTrialActive = !TrialManager.isTrialExpired()
-       // val isTrialActive = false
         if (!isTrialActive) {
             lockoutReason = "Trial Expired - Activation Required"
         }
@@ -82,73 +75,94 @@ fun main() = application {
             icon = painterResource("geoSpatialProcessor.png")
         ) {
             GeospatialEnterpriseTheme {
-                Box {
-                    MainScreen(repository)
+                // REPLACED BOX WITH COLUMN
+                Column(modifier = Modifier.fillMaxSize()) {
 
-                    // --- DYNAMIC WATERMARK (Trial vs Subscription) ---
-                    val savedLicense = LicenseStorage.getLicense()
-                    if (savedLicense != null) {
-                        // It's a subscription. Calculate days remaining.
-                        val subDays = LicenseManager.getSubscriptionDaysRemaining(savedLicense)
-
-                        // Only show the badge if they have 7 days or less left to warn them
-                        if (subDays <= 7) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
-                                Text(
-                                    "Subscription: $subDays days remaining",
-                                    modifier = Modifier
-                                        .padding(16.dp)
-                                        // Turn the box red when they drop to 3 days or less
-                                        .background(if (subDays <= 3) Color.Red.copy(0.8f) else Color.Black.copy(0.5f))
-                                        .padding(4.dp),
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.overline
-                                )
-                            }
-                        }
-                    } else {
-                        // It's the trial. Show the trial countdown.
-                        val days = TrialManager.getDaysRemaining()
-                        if (days > 0) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
-                                Text(
-                                    "Trial Mode: $days days remaining",
-                                    modifier = Modifier.padding(16.dp).background(Color.Black.copy(0.5f)).padding(4.dp),
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.overline
-                                )
-                            }
-                        }
+                    // 1. Main Workspace takes up all available height (weight = 1f)
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        MainScreen(repository)
                     }
+
+                    // 2. The Status Bar is pinned to the very bottom
+                    LicenseStatusBar()
                 }
             }
         }
     } else {
-        // --- THE LOCK SCREEN (Shows when Trial/Subscription Expired OR No License Found) ---
+        // --- THE LOCK SCREEN ---
         Window(
             onCloseRequest = {
                 exitApplication()
                 exitProcess(0)
             },
-            title = lockoutReason, // Uses the dynamic reason text calculated at startup
+            title = lockoutReason,
             state = rememberWindowState(width = 600.dp, height = 550.dp),
             icon = painterResource("geoSpatialProcessor.png")
         ) {
             GeospatialEnterpriseTheme {
-                LockScreen(showExpiredMessage = lockoutReason.contains("Subscription"),onKeyEntered = { key ->
-                    // 1. Check for the debug bypass first
-                    if (key == "SECRET_ADMIN_DEBUG") {
-                        isAuthorized = true
-                    } else {
-                        // 2. Otherwise, attempt RSA validation
-                        val status = LicenseManager.verifyLicense(key)
-                        if (status is LicenseManager.LicenseStatus.Valid) {
-                            LicenseStorage.saveLicense(key)
+                LockScreen(
+                    showExpiredMessage = lockoutReason.contains("Subscription"),
+                    onKeyEntered = { key ->
+                        if (key == "SECRET_ADMIN_DEBUG") {
                             isAuthorized = true
+                        } else {
+                            val status = LicenseManager.verifyLicense(key)
+                            if (status is LicenseManager.LicenseStatus.Valid) {
+                                LicenseStorage.saveLicense(key)
+                                isAuthorized = true
+                            }
                         }
                     }
-                })
+                )
             }
         }
+    }
+}
+
+// MOVED OUTSIDE OF fun main()
+@Composable
+fun LicenseStatusBar() {
+    var statusMessage by remember { mutableStateOf("Checking license...") }
+    var isWarning by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val savedLicense = LicenseStorage.getLicense()
+
+        if (savedLicense != null) {
+            val status = LicenseManager.verifyLicense(savedLicense)
+
+            if (status is LicenseManager.LicenseStatus.Valid) {
+                val daysLeft = LicenseManager.getSubscriptionDaysRemaining(savedLicense)
+                statusMessage = "Subscription Active: $daysLeft days remaining"
+                isWarning = daysLeft <= 5
+            } else {
+                statusMessage = "License Expired or Invalid!"
+                isWarning = true
+            }
+        } else {
+            if (!TrialManager.isTrialExpired()) {
+                val trialDaysLeft = TrialManager.getDaysRemaining()
+                statusMessage = "Trial Mode: $trialDaysLeft days left"
+                isWarning = trialDaysLeft <= 3
+            } else {
+                statusMessage = "Trial Expired. Please activate a license."
+                isWarning = true
+            }
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (isWarning) Color(0xFFD32F2F) else Color(0xFF2E7D32))
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = statusMessage,
+            color = Color.White,
+            fontSize = 14.sp
+        )
     }
 }
