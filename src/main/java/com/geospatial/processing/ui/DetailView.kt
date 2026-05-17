@@ -51,7 +51,6 @@ fun DetailView(
     var ambientTemp by remember(record) { mutableStateOf(record.ambientTemp) }
 
     // --- NEW: DYNAMIC CIRCUIT STATE ---
-    // A SnapshotStateMap natively observes changes for Compose UI
     val dynamicCircuitsState = remember(record) {
         mutableStateMapOf<String, String>().apply { putAll(record.dynamicCircuits) }
     }
@@ -96,14 +95,12 @@ fun DetailView(
                 latitude = lat.toDoubleOrNull() ?: 0.0,
                 longitude = long.toDoubleOrNull() ?: 0.0,
 
-                // Saving New Fields
                 phase = phase,
                 side = side,
                 direction = direction,
                 capturedDate = capturedDate,
                 capturedTime = capturedTime,
 
-                // Convert state map back to a standard Kotlin Map
                 dynamicCircuits = dynamicCircuitsState.toMap(),
 
                 riseTemp = riseTemp,
@@ -126,8 +123,8 @@ fun DetailView(
         backgroundColor = Color.Transparent,
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                text = { Text("SAVE TOWER DATA", color = Color.White) },
-                icon = { Icon(Icons.Default.Add, contentDescription = null, tint = Color.White) },
+                text = { Text("SAVE TOWER DATA", color = MaterialTheme.colors.onPrimary) },
+                icon = { Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colors.onPrimary) },
                 onClick = { validateAndSave() },
                 backgroundColor = MaterialTheme.colors.primaryVariant
             )
@@ -135,15 +132,16 @@ fun DetailView(
     ) { padding ->
         Card(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
-            elevation = 4.dp,
-            shape = RoundedCornerShape(8.dp),
-            backgroundColor = MaterialTheme.colors.surface
+            elevation = 0.dp, // Flat design for modern dashboards
+            shape = RoundedCornerShape(12.dp),
+            backgroundColor = MaterialTheme.colors.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colors.onSurface.copy(alpha = 0.12f))
         ) {
             Column(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(32.dp)
             ) {
                 // --- HEADER ---
-                Text("Tower Inspection Details", style = MaterialTheme.typography.h5, fontWeight = FontWeight.Bold)
+                Text("Tower Inspection Details", style = MaterialTheme.typography.h5, fontWeight = FontWeight.Bold, color = MaterialTheme.colors.onSurface)
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // --- SECTION 1: LOCATION & TIME ---
@@ -175,8 +173,13 @@ fun DetailView(
                     label = { Text("Report Classification") },
                     modifier = Modifier.fillMaxWidth(),
                     colors = TextFieldDefaults.outlinedTextFieldColors(
-                        backgroundColor = if (record.isFault) Color(0xFFFDF2E9) else Color(0xFFE8F4F8),
-                        disabledTextColor = if (record.isFault) Color.Red else Color.DarkGray
+                        // Dynamically styles the box based on Fault status and Theme
+                        backgroundColor = if (record.isFault) {
+                            MaterialTheme.colors.error.copy(alpha = 0.1f)
+                        } else {
+                            MaterialTheme.colors.secondary.copy(alpha = 0.1f)
+                        },
+                        disabledTextColor = if (record.isFault) MaterialTheme.colors.error else MaterialTheme.colors.onSurface
                     ),
                     enabled = false
                 )
@@ -240,10 +243,9 @@ fun DetailView(
                 // --- DYNAMIC CIRCUITS UI LOOP ---
                 if (dynamicCircuitsState.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Dynamic Load Circuits", style = MaterialTheme.typography.subtitle2, color = Color.Gray)
+                    Text("Dynamic Load Circuits", style = MaterialTheme.typography.subtitle2, color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f))
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Extract the keys and chunk them to render exactly 3 TextFields per row
                     val keys = dynamicCircuitsState.keys.toList()
                     keys.chunked(3).forEach { rowKeys ->
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -251,13 +253,11 @@ fun DetailView(
                                 ValidatedTextField(
                                     value = dynamicCircuitsState[key] ?: "",
                                     onValueChange = { newValue -> dynamicCircuitsState[key] = newValue },
-                                    label = key, // Dynamic label from the CSV header
+                                    label = key,
                                     isError = false,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
-
-                            // If a row has fewer than 3 items, inject spacers to keep the columns aligned
                             repeat(3 - rowKeys.size) {
                                 Spacer(modifier = Modifier.weight(1f))
                             }
@@ -286,7 +286,25 @@ fun DetailView(
 @Composable
 fun ValidatedTextField(value: String, onValueChange: (String) -> Unit, label: String, isError: Boolean, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
-        OutlinedTextField(value = value, onValueChange = onValueChange, label = { Text(label) }, isError = isError, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            isError = isError,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            // FIX: Explicitly tell the text field how to behave in Dark/Light mode
+            colors = TextFieldDefaults.outlinedTextFieldColors(
+                textColor = MaterialTheme.colors.onSurface,
+                cursorColor = MaterialTheme.colors.secondary,
+                focusedBorderColor = MaterialTheme.colors.secondary,
+                unfocusedBorderColor = MaterialTheme.colors.onSurface.copy(alpha = 0.3f),
+                focusedLabelColor = MaterialTheme.colors.secondary,
+                unfocusedLabelColor = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+                errorBorderColor = MaterialTheme.colors.error,
+                errorLabelColor = MaterialTheme.colors.error
+            )
+        )
     }
 }
 
@@ -303,13 +321,20 @@ fun RowScope.ImageSlot(label: String, imageSource: ImageSource, isError: Boolean
         } catch (e: Exception) { null }
     }
     Column(modifier = Modifier.weight(1f)) {
-        Text(label, style = MaterialTheme.typography.subtitle2, color = Color.DarkGray)
+        Text(label, style = MaterialTheme.typography.subtitle2, color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f))
         Spacer(modifier = Modifier.height(4.dp))
         Box(
-            modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFFF1F5F9)).border(1.dp, Color.LightGray, RoundedCornerShape(8.dp)).clickable {
-                val file = pickImageFile()
-                if (file != null) { val compressed = ImageUtils.compressImage(file); if (compressed != null) onUpload(compressed) }
-            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+                .clip(RoundedCornerShape(8.dp))
+                // Subtle dynamic background instead of hardcoded hex
+                .background(MaterialTheme.colors.onSurface.copy(alpha = 0.04f))
+                .border(1.dp, MaterialTheme.colors.onSurface.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+                .clickable {
+                    val file = pickImageFile()
+                    if (file != null) { val compressed = ImageUtils.compressImage(file); if (compressed != null) onUpload(compressed) }
+                },
             contentAlignment = Alignment.Center
         ) {
             if (bitmap != null) {
@@ -317,16 +342,30 @@ fun RowScope.ImageSlot(label: String, imageSource: ImageSource, isError: Boolean
 
                 IconButton(
                     onClick = { onUpload(ByteArray(0)) },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.White.copy(0.9f), RoundedCornerShape(50)).size(36.dp)
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .background(MaterialTheme.colors.surface.copy(alpha = 0.85f), RoundedCornerShape(50))
+                        .size(36.dp)
                 ) {
-                    Icon(Icons.Default.Delete, contentDescription = "Clear Image", tint = Color.Red)
+                    Icon(Icons.Default.Delete, contentDescription = "Clear Image", tint = MaterialTheme.colors.error)
                 }
 
                 if (imageSource is ImageSource.FromFile) {
-                    Text("Local File", modifier = Modifier.align(Alignment.BottomStart).background(Color.Black.copy(0.6f), RoundedCornerShape(topEnd = 8.dp)).padding(horizontal = 8.dp, vertical = 4.dp), color = Color.White, style = MaterialTheme.typography.overline)
+                    Text(
+                        text = "Local File",
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .background(MaterialTheme.colors.onBackground.copy(alpha = 0.7f), RoundedCornerShape(topEnd = 8.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        color = MaterialTheme.colors.surface,
+                        style = MaterialTheme.typography.overline
+                    )
                 }
             }
-            else Icon(Icons.Default.Add, contentDescription = null, tint = Color.Gray)
+            else {
+                Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colors.onSurface.copy(alpha = 0.3f))
+            }
         }
     }
 }
@@ -334,7 +373,7 @@ fun RowScope.ImageSlot(label: String, imageSource: ImageSource, isError: Boolean
 @Composable
 fun SectionHeader(title: String) {
     Text(title, style = MaterialTheme.typography.h6, color = MaterialTheme.colors.primary, modifier = Modifier.padding(bottom = 8.dp))
-    Divider(color = Color(0xFFE2E8F0))
+    Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f))
     Spacer(modifier = Modifier.height(8.dp))
 }
 

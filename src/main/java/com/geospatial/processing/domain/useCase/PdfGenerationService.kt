@@ -204,10 +204,17 @@ class PdfGenerationService(private val repository: GeoRepository) {
             addMetricCell(metricsTable, "Emissivity", record.emissivity)
             addMetricCell(metricsTable, "", "")
 
-            // --- NEW: DYNAMIC CIRCUITS LOOP ---
-            // Iterates through whatever headers were found in the CSV and prints them.
+            // --- NEW: DYNAMIC CIRCUITS LOOP (BULLETPROOF SORTING) ---
             var circuitCount = 0
-            record.dynamicCircuits.forEach { (headerName, headerValue) ->
+
+            // This extracts the actual number from strings like "Load CKT3" or "CKT4"
+            // and sorts them mathematically, ensuring perfect sequential order every time.
+            val sortedCircuits = record.dynamicCircuits.entries.sortedBy { entry ->
+                val match = Regex("CKT\\s*(\\d+)", RegexOption.IGNORE_CASE).find(entry.key)
+                match?.groupValues?.get(1)?.toInt() ?: 0
+            }
+
+            sortedCircuits.forEach { (headerName, headerValue) ->
                 addMetricCell(metricsTable, headerName.uppercase(), headerValue)
                 circuitCount++
             }
