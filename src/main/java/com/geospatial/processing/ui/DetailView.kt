@@ -189,12 +189,14 @@ fun DetailView(
                 val type = record.reportType.lowercase()
                 val isMidSpan = type.contains("mid")
                 val isSleeve = type.contains("sleeve")
+                val isEarthWire = type.contains("earth")
 
                 val lblLocation = "Location"
                 val lblThermal = if (isMidSpan) "THERMAL Image" else "Thermal Image"
                 val lblTowerSpan = when {
                     isMidSpan -> "SPAN Image"
                     isSleeve -> "SLEEVE Image"
+                    isEarthWire -> "EARTH WIRE Image"
                     else -> "Tower Image"
                 }
                 val lblRgb = "RGB Image"
@@ -209,7 +211,7 @@ fun DetailView(
 
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
 
-                        if (!isMidSpan && !isSleeve) {
+                        if (!isMidSpan && !isSleeve && !isEarthWire) {
                             TowerSequenceNavigator(
                                 previousItem = prevItemName,
                                 currentItem = record.towerNumber,
