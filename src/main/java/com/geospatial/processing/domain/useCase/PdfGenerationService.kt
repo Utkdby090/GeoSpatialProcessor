@@ -59,6 +59,7 @@ class PdfGenerationService(private val repository: GeoRepository) {
                     val (folderName, filePrefix) = when {
                         type.contains("mid", ignoreCase = true) -> Pair("Mid_Span_Reports", "MidSpan")
                         type.contains("sleeve", ignoreCase = true) -> Pair("Repair_Sleeve_Reports", "Repair_Sleeve")
+                        type.contains("earth", ignoreCase = true) -> Pair("Earth_Wire_Joint_Reports", "Earth_Wire_Joint")
                         else -> Pair("Tower_Reports", "Tower")
                     }
 
@@ -101,6 +102,7 @@ class PdfGenerationService(private val repository: GeoRepository) {
         val type = record.reportType.lowercase()
         val isMidSpan = type.contains("mid")
         val isSleeve = type.contains("sleeve")
+        val isEarthWire = type.contains("earth")
 
         val documentTitleText = record.resolvedReportTitle.uppercase()
 
@@ -109,6 +111,7 @@ class PdfGenerationService(private val repository: GeoRepository) {
         val labelSlot3 = when {
             isMidSpan -> "SPAN Image"
             isSleeve -> "SLEEVE Image"
+            isEarthWire -> "EARTH WIRE Image"
             else -> "Tower Image"
         }
         val labelSlot4 = "RGB Image"
@@ -152,7 +155,7 @@ class PdfGenerationService(private val repository: GeoRepository) {
 
             // Bottom Left: Conditional Navigator Logic
             val slot3ImageBytes = getImageBytes(record.resolveTowerImage(rootDir))
-            if (isMidSpan || isSleeve ) {
+            if (isMidSpan || isSleeve || isEarthWire ) {
                 addImageCell(imagesTable, labelSlot3, slot3ImageBytes)
             } else {
                 addTowerImageWithNavigatorCell(
@@ -183,7 +186,7 @@ class PdfGenerationService(private val repository: GeoRepository) {
             addMetricCell(metricsTable, "Time Captured", record.capturedTime ?: "N/A")
             addMetricCell(metricsTable, "Coordinates", "${record.latitude}, ${record.longitude}")
 
-            if (isMidSpan || isSleeve) {
+            if (isMidSpan || isSleeve || isEarthWire) {
                 addMetricCell(metricsTable, "", "")
             } else {
                 addMetricCell(metricsTable, "Direction", record.direction ?: "N/A")

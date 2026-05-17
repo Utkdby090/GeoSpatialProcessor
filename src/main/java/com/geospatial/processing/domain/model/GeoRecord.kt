@@ -82,6 +82,9 @@ data class GeoRecord(
         get() {
             val type = reportType.lowercase()
             return when {
+                // if the report type is earth
+                type.contains("earth") || type.contains("wire") ->
+                    if (isFault) "Earth Wire Joint Fault report" else "Earth Wire Joint report"
                 // Catches "midspan", "mid_span", "mid_span_fault", etc.
                 type.contains("mid") ->
                     if (isFault) "Mid Span Fault report" else "Mid Span no fault report"
@@ -146,8 +149,8 @@ data class GeoRecord(
 
         val type = reportType.lowercase()
         val isMidSpan = type.contains("midspan") || type.contains("mid_span")
-        val isSleeve = type.contains("sleeve") || type.contains("repair_sleeve") // <-- NEW CHECK
-
+        val isSleeve = type.contains("sleeve") || type.contains("repair_sleeve")
+        val isEarthWire = type.contains("earth") || type.contains("wire")
         // Dynamically looks for "Span", "Sleeve", or "Tower"
         val file = folder.listFiles()?.firstOrNull {
             val name = it.name.lowercase()
@@ -155,7 +158,8 @@ data class GeoRecord(
                     !name.contains("thermal") && !name.contains("ir") && !name.contains("zoom") &&
                     when {
                         isMidSpan -> name.contains("span") || name.contains("mid")
-                        isSleeve -> name.contains("sleeve") || name.contains("repair") // <-- NEW FILTER
+                        isSleeve -> name.contains("sleeve") || name.contains("repair")
+                        isEarthWire -> name.contains("earth") || name.contains("wire") || name.contains("joint") || name.contains("span") || name.contains("mid") || name.contains("sleeve") || name.contains("repair")
                         else -> name.contains("tower") || name.contains("wide") || name.contains("structure")
                     }
         }

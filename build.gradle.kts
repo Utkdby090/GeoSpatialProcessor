@@ -25,6 +25,7 @@ dependencies {
     implementation("org.jetbrains.exposed:exposed-jdbc:0.50.1")
     implementation("org.jetbrains.exposed:exposed-java-time:0.50.1")
     implementation("io.github.willena:sqlite-jdbc:3.45.1.0")
+    implementation("com.google.code.gson:gson:2.10.1")
 
     // --- Concurrency ---
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
