@@ -24,7 +24,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.geospatial.processing.domain.model.GeoRecord
-import com.geospatial.processing.ui.theme.*
 import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
@@ -34,8 +33,13 @@ fun TreeView(
     records: List<GeoRecord>,
     selectedRecord: GeoRecord?,
     rootDir: String,
-    isAscending: Boolean,           // <--- NEW
+    isAscending: Boolean,
     onToggleSort: () -> Unit,
+
+    // NEW: Theme Toggle Parameters
+    isDarkTheme: Boolean,
+    onThemeToggle: () -> Unit,
+
     onSelect: (GeoRecord) -> Unit,
     onImportClick: (File) -> Unit,
     onExportClick: (File) -> Unit,
@@ -48,13 +52,15 @@ fun TreeView(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(SurfaceWhite)
+            // Dynamically uses the surface color (White in Light Mode, Slate in Dark Mode)
+            .background(MaterialTheme.colors.surface)
     ) {
-        // --- 1. THE ENTERPRISE HEADER (NOW WITH BUTTONS!) ---
+        // --- 1. THE ENTERPRISE HEADER ---
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(NavyPrimary)
+                // Dynamically uses the Primary color for the header
+                .background(MaterialTheme.colors.primary)
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             Row(
@@ -66,7 +72,7 @@ fun TreeView(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "PROJECT TOWERS",
-                        color = Color.White,
+                        color = MaterialTheme.colors.onPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
                         letterSpacing = 1.sp
@@ -75,20 +81,34 @@ fun TreeView(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White.copy(alpha = 0.2f))
+                            .background(MaterialTheme.colors.onPrimary.copy(alpha = 0.2f))
                             .padding(horizontal = 8.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = records.size.toString(),
-                            color = Color.White,
+                            color = MaterialTheme.colors.onPrimary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                // RIGHT SIDE: The Restored Quick Actions
+                // RIGHT SIDE: The Quick Actions
                 Row(verticalAlignment = Alignment.CenterVertically) {
+
+                    // --- NEW: DAY/NIGHT TOGGLE BUTTON ---
+                    IconButton(
+                        onClick = onThemeToggle,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text(
+                            text = if (isDarkTheme) "☀️" else "🌙", // Visually swaps based on state
+                            fontSize = 16.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
                     // Export ZIP Button
                     IconButton(
                         onClick = {
@@ -100,7 +120,7 @@ fun TreeView(
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = "Export ZIP",
-                            tint = Color.White.copy(alpha = 0.7f), // Slightly dimmed so it looks premium
+                            tint = MaterialTheme.colors.onPrimary.copy(alpha = 0.7f),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -118,7 +138,7 @@ fun TreeView(
                         Icon(
                             imageVector = Icons.Default.AddCircle,
                             contentDescription = "Import CSV",
-                            tint = Color.White, // Pure white to make it the primary action
+                            tint = MaterialTheme.colors.onPrimary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -132,8 +152,9 @@ fun TreeView(
                 items(records) { record ->
                     val isSelected = selectedRecord?.id == record.id
 
-                    val backgroundColor = if (isSelected) AzureAccent.copy(alpha = 0.08f) else Color.Transparent
-                    val indicatorColor = if (isSelected) AzureAccent else Color.Transparent
+                    // Secondary color (Azure) handles highlights automatically
+                    val backgroundColor = if (isSelected) MaterialTheme.colors.secondary.copy(alpha = 0.08f) else Color.Transparent
+                    val indicatorColor = if (isSelected) MaterialTheme.colors.secondary else Color.Transparent
 
                     Column {
                         Row(
@@ -159,7 +180,8 @@ fun TreeView(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Tower ${record.towerNumber}",
-                                    color = if (isSelected) AzureAccent else TextPrimary,
+                                    // Switches between Azure (selected) or dynamic OnSurface color
+                                    color = if (isSelected) MaterialTheme.colors.secondary else MaterialTheme.colors.onSurface,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 14.sp,
                                     maxLines = 1,
@@ -169,7 +191,8 @@ fun TreeView(
 
                                 Text(
                                     text = if (record.lineName.isNotBlank()) record.lineName else "Circuit: ${record.circuit}",
-                                    color = TextSecondary,
+                                    // Secondary text is just onSurface with 60% opacity
+                                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
                                     fontSize = 12.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -195,7 +218,8 @@ fun TreeView(
                                 }
                             }
                         }
-                        Divider(color = BorderLight, thickness = 1.dp)
+                        // Divider adapts to Dark/Light mode using 12% opacity of the text color
+                        Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f), thickness = 1.dp)
                     }
                 }
             }
