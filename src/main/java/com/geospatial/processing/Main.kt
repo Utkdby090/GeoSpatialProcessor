@@ -65,22 +65,34 @@ fun main() = application {
             GeoRepository()
         }
 
+        // Extract the window state so we can pass it down for our custom Maximize/Minimize buttons
+        val windowState = rememberWindowState(width = 1200.dp, height = 800.dp)
+
         Window(
             onCloseRequest = {
                 exitApplication()
                 exitProcess(0)
             },
             title = "GeoSpatial Data Processor",
-            state = rememberWindowState(width = 1200.dp, height = 800.dp),
-            icon = painterResource("geoSpatialProcessor.png")
+            state = windowState,
+            icon = painterResource("geoSpatialProcessor.png"),
+            undecorated = true,    // HIDES THE DEFAULT OS WINDOW BORDER
+            transparent = false    // Required for undecorated windows to render smoothly
         ) {
             GeospatialEnterpriseTheme {
-                // REPLACED BOX WITH COLUMN
                 Column(modifier = Modifier.fillMaxSize()) {
 
                     // 1. Main Workspace takes up all available height (weight = 1f)
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        MainScreen(repository)
+                        // Pass the windowState and a close callback down to the MainScreen
+                        MainScreen(
+                            repository = repository,
+                            windowState = windowState,
+                            onCloseApp = {
+                                exitApplication()
+                                exitProcess(0)
+                            }
+                        )
                     }
 
                     // 2. The Status Bar is pinned to the very bottom
@@ -98,6 +110,7 @@ fun main() = application {
             title = lockoutReason,
             state = rememberWindowState(width = 600.dp, height = 550.dp),
             icon = painterResource("geoSpatialProcessor.png")
+            // Note: We leave the lock screen decorated so it looks like a standard system prompt.
         ) {
             GeospatialEnterpriseTheme {
                 LockScreen(
@@ -119,7 +132,6 @@ fun main() = application {
     }
 }
 
-// MOVED OUTSIDE OF fun main()
 @Composable
 fun LicenseStatusBar() {
     var statusMessage by remember { mutableStateOf("Checking license...") }
@@ -154,6 +166,7 @@ fun LicenseStatusBar() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // We can leave this hardcoded as it is a strict status indicator (Green/Red)
             .background(if (isWarning) Color(0xFFD32F2F) else Color(0xFF2E7D32))
             .padding(8.dp),
         horizontalArrangement = Arrangement.Center,
