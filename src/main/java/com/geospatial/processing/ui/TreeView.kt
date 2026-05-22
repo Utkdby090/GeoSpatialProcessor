@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.geospatial.processing.domain.model.GeoRecord
 import java.io.File
 import javax.swing.JFileChooser
+import javax.swing.JFrame
 import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
@@ -239,7 +240,16 @@ fun pickCsvFile(): File? {
     val chooser = JFileChooser()
     chooser.dialogTitle = "Import Location Data"
     chooser.fileFilter = FileNameExtensionFilter("CSV Files", "csv", "txt")
-    val result = chooser.showOpenDialog(null)
+    val parentFrame = JFrame().apply {
+        iconImage = getAwtAppIcon()
+    }
+
+    // 2. Pass the custom frame instead of 'null'
+    val result = chooser.showOpenDialog(parentFrame)
+
+    // 3. Immediately destroy the frame after the user closes the dialog
+    parentFrame.dispose()
+    
     return if (result == JFileChooser.APPROVE_OPTION) chooser.selectedFile else null
 }
 
@@ -261,7 +271,15 @@ fun saveZipFile(): File? {
     val chooser = JFileChooser()
     chooser.dialogTitle = "Save Bulk PDF ZIP"
     chooser.fileFilter = FileNameExtensionFilter("ZIP Archive", "zip")
-    val result = chooser.showSaveDialog(null)
+    val parentFrame = JFrame().apply {
+        iconImage = getAwtAppIcon()
+    }
+
+    // 2. Pass the custom frame instead of 'null'
+    val result = chooser.showOpenDialog(parentFrame)
+
+    // 3. Immediately destroy the frame after the user closes the dialog
+    parentFrame.dispose()
     if (result == JFileChooser.APPROVE_OPTION) {
         var file = chooser.selectedFile
         if (!file.name.lowercase().endsWith(".zip")) {

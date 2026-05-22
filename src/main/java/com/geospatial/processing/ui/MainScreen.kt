@@ -1,7 +1,10 @@
 package com.geospatial.processing.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.window.WindowDraggableArea
@@ -14,7 +17,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,24 +39,22 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import androidx.compose.foundation.Canvas
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import java.awt.Image
+import javax.imageio.ImageIO
+import javax.swing.JFrame
 
 @Composable
 fun FrameWindowScope.MainScreen(
     repository: GeoRepository,
-    windowState: WindowState, // Added to control the window
-    onCloseApp: () -> Unit    // Added to close the app from custom button
+    windowState: WindowState,
+    onCloseApp: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var records by remember { mutableStateOf<List<GeoRecord>>(emptyList()) }
     var isDarkTheme by remember { mutableStateOf(false) }
     var sortAscending by remember { mutableStateOf(true) }
     var selectedRecordId by remember { mutableStateOf<Int?>(null) }
+
 
     val displayedRecords = remember(records, sortAscending) {
         if (sortAscending) records else records.reversed()
@@ -68,6 +72,9 @@ fun FrameWindowScope.MainScreen(
     var importStatusText by remember { mutableStateOf("Preparing...") }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
     var showImportSuccessDialog by remember { mutableStateOf(false) }
+
+    // Editor State
+    var showAnnotationUtility by remember { mutableStateOf(false) }
 
     var isExporting by remember { mutableStateOf(false) }
     var exportProgressRatio by remember { mutableStateOf(0f) }
@@ -174,7 +181,8 @@ fun FrameWindowScope.MainScreen(
                     hasSelection = selectedRecord != null,
                     onDeleteSelected = { selectedRecord?.let { doDelete(it) } },
                     onClearAllData = { showClearConfirmDialog = true },
-                    onRefreshList = { scope.launch { records = repository.getAllRecords() } }
+                    onRefreshList = { scope.launch { records = repository.getAllRecords() } },
+                    onOpenTools = { showAnnotationUtility = true } // Wired callback
                 )
 
                 Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f))
@@ -296,12 +304,17 @@ fun FrameWindowScope.MainScreen(
                     }
                 )
             }
+
+            // --- STANDALONE ANNOTATION UTILITY ---
+            if (showAnnotationUtility) {
+                com.geospatial.processing.ui.editor.StandaloneImageEditorWindow( // <-- Add "Window" here
+                    onDismiss = { showAnnotationUtility = false }
+                )
+            }
         }
     }
 }
 
-// --- NEW: THE VS-CODE STYLE DRAGGABLE TITLE BAR ---
-// --- NEW: THE VS-CODE STYLE DRAGGABLE TITLE BAR ---
 // --- NEW: THE VS-CODE STYLE DRAGGABLE TITLE BAR (WITH HOVER EFFECTS) ---
 @Composable
 fun FrameWindowScope.CustomTitleBar(
@@ -309,17 +322,15 @@ fun FrameWindowScope.CustomTitleBar(
     onCloseApp: () -> Unit,
     appName: String
 ) {
-    // WindowDraggableArea allows the user to click and drag the app from this bar
     WindowDraggableArea {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(32.dp) // Standard native title bar height
+                .height(32.dp)
                 .background(MaterialTheme.colors.background),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // App Title on the left
             Text(
                 text = appName,
                 color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
@@ -327,12 +338,11 @@ fun FrameWindowScope.CustomTitleBar(
                 modifier = Modifier.padding(start = 16.dp)
             )
 
-            // Window Controls on the right
             Row {
                 val baseIconColor = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
-                val hoverIconColor = MaterialTheme.colors.onSurface // Brightens to 100% opacity on hover
-                val hoverBgColor = MaterialTheme.colors.onSurface.copy(alpha = 0.1f) // Subtle gray box
-                val appBgColor = MaterialTheme.colors.background // Used to "erase" the overlapping square
+                val hoverIconColor = MaterialTheme.colors.onSurface
+                val hoverBgColor = MaterialTheme.colors.onSurface.copy(alpha = 0.1f)
+                val appBgColor = MaterialTheme.colors.background
 
                 // 1. Minimize Button
                 val minInteraction = remember { MutableInteractionSource() }
@@ -342,7 +352,6 @@ fun FrameWindowScope.CustomTitleBar(
                     modifier = Modifier
                         .size(46.dp, 32.dp)
                         .background(if (isMinHovered) hoverBgColor else Color.Transparent)
-                        // Use indication = null to remove the default Android circular ripple
                         .clickable(interactionSource = minInteraction, indication = null) { windowState.isMinimized = true },
                     contentAlignment = Alignment.Center
                 ) {
@@ -378,33 +387,11 @@ fun FrameWindowScope.CustomTitleBar(
                         val currentColor = if (isMaxHovered) hoverIconColor else baseIconColor
 
                         if (windowState.placement == WindowPlacement.Maximized) {
-                            // --- RESTORE ICON (Two Overlapping Squares) ---
-                            // Back square (Top Right)
-                            drawRect(
-                                color = currentColor,
-                                topLeft = Offset(2.dp.toPx(), 0f),
-                                size = Size(8.dp.toPx(), 8.dp.toPx()),
-                                style = Stroke(width = strokeW)
-                            )
-                            // "Eraser" to punch a hole for the front square
-                            drawRect(
-                                color = appBgColor,
-                                topLeft = Offset(0f, 2.dp.toPx()),
-                                size = Size(8.dp.toPx(), 8.dp.toPx())
-                            )
-                            // Front square (Bottom Left)
-                            drawRect(
-                                color = currentColor,
-                                topLeft = Offset(0f, 2.dp.toPx()),
-                                size = Size(8.dp.toPx(), 8.dp.toPx()),
-                                style = Stroke(width = strokeW)
-                            )
+                            drawRect(color = currentColor, topLeft = Offset(2.dp.toPx(), 0f), size = Size(8.dp.toPx(), 8.dp.toPx()), style = Stroke(width = strokeW))
+                            drawRect(color = appBgColor, topLeft = Offset(0f, 2.dp.toPx()), size = Size(8.dp.toPx(), 8.dp.toPx()))
+                            drawRect(color = currentColor, topLeft = Offset(0f, 2.dp.toPx()), size = Size(8.dp.toPx(), 8.dp.toPx()), style = Stroke(width = strokeW))
                         } else {
-                            // --- MAXIMIZE ICON (Single Square) ---
-                            drawRect(
-                                color = currentColor,
-                                style = Stroke(width = strokeW)
-                            )
+                            drawRect(color = currentColor, style = Stroke(width = strokeW))
                         }
                     }
                 }
@@ -416,7 +403,6 @@ fun FrameWindowScope.CustomTitleBar(
                 Box(
                     modifier = Modifier
                         .size(46.dp, 32.dp)
-                        // Windows Standard: Close button turns bright red on hover
                         .background(if (isCloseHovered) Color(0xFFE81123) else Color.Transparent)
                         .clickable(interactionSource = closeInteraction, indication = null) { onCloseApp() },
                     contentAlignment = Alignment.Center
@@ -424,7 +410,6 @@ fun FrameWindowScope.CustomTitleBar(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        // Turns pure white to contrast with the red background
                         tint = if (isCloseHovered) Color.White else baseIconColor,
                         modifier = Modifier.size(16.dp)
                     )
@@ -445,11 +430,13 @@ fun CustomThemeableMenuBar(
     hasSelection: Boolean,
     onDeleteSelected: () -> Unit,
     onClearAllData: () -> Unit,
-    onRefreshList: () -> Unit
+    onRefreshList: () -> Unit,
+    onOpenTools: () -> Unit // NEW PARAMETER
 ) {
     var fileMenuExpanded by remember { mutableStateOf(false) }
     var editMenuExpanded by remember { mutableStateOf(false) }
     var viewMenuExpanded by remember { mutableStateOf(false) }
+    var toolsMenuExpanded by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
@@ -490,6 +477,19 @@ fun CustomThemeableMenuBar(
                 }
             }
         }
+
+        // --- TOOLS MENU (Now correctly inside the Row) ---
+        Box {
+            TextButton(onClick = { toolsMenuExpanded = true }) { Text("Tools", color = MaterialTheme.colors.onSurface) }
+            DropdownMenu(expanded = toolsMenuExpanded, onDismissRequest = { toolsMenuExpanded = false }, modifier = Modifier.background(MaterialTheme.colors.surface)) {
+                DropdownMenuItem(onClick = {
+                    toolsMenuExpanded = false
+                    onOpenTools()
+                }) {
+                    Text("Image Annotation Utility", color = MaterialTheme.colors.onSurface)
+                }
+            }
+        }
     }
 }
 
@@ -497,9 +497,9 @@ fun CustomThemeableMenuBar(
 @Composable
 fun StatusIndicator(status: RecordStatus) {
     val indicatorColor = when (status) {
-        RecordStatus.READY -> Color(0xFF10B981) // Emerald Green
-        RecordStatus.DRAFT -> Color(0xFFF59E0B) // Amber
-        else -> Color(0xFFEF4444)               // Red
+        RecordStatus.READY -> Color(0xFF10B981)
+        RecordStatus.DRAFT -> Color(0xFFF59E0B)
+        else -> Color(0xFFEF4444)
     }
 
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -534,3 +534,11 @@ fun NoProjectView(onImportClicked: () -> Unit) {
     }
 }
 
+fun getAwtAppIcon(): Image? {
+    return try {
+        val resourceStream = Thread.currentThread().contextClassLoader.getResourceAsStream("geoSpatialProcessor.png")
+        if (resourceStream != null) ImageIO.read(resourceStream) else null
+    } catch (e: Exception) {
+        null
+    }
+}
