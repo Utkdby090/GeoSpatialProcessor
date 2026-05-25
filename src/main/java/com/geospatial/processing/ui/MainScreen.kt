@@ -47,7 +47,8 @@ import javax.swing.JFrame
 fun FrameWindowScope.MainScreen(
     repository: GeoRepository,
     windowState: WindowState,
-    onCloseApp: () -> Unit
+    onCloseApp: () -> Unit,
+    onCloseProject: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var records by remember { mutableStateOf<List<GeoRecord>>(emptyList()) }
@@ -182,7 +183,9 @@ fun FrameWindowScope.MainScreen(
                     onDeleteSelected = { selectedRecord?.let { doDelete(it) } },
                     onClearAllData = { showClearConfirmDialog = true },
                     onRefreshList = { scope.launch { records = repository.getAllRecords() } },
-                    onOpenTools = { showAnnotationUtility = true } // Wired callback
+                    onOpenTools = { showAnnotationUtility = true }, // Wired callback
+                    onCloseProject = onCloseProject
+
                 )
 
                 Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f))
@@ -431,7 +434,8 @@ fun CustomThemeableMenuBar(
     onDeleteSelected: () -> Unit,
     onClearAllData: () -> Unit,
     onRefreshList: () -> Unit,
-    onOpenTools: () -> Unit // NEW PARAMETER
+    onOpenTools: () -> Unit, // NEW PARAMETER
+    onCloseProject: () -> Unit
 ) {
     var fileMenuExpanded by remember { mutableStateOf(false) }
     var editMenuExpanded by remember { mutableStateOf(false) }
@@ -449,6 +453,7 @@ fun CustomThemeableMenuBar(
             TextButton(onClick = { fileMenuExpanded = true }) { Text("File", color = MaterialTheme.colors.onSurface) }
             DropdownMenu(expanded = fileMenuExpanded, onDismissRequest = { fileMenuExpanded = false }, modifier = Modifier.background(MaterialTheme.colors.surface)) {
                 DropdownMenuItem(onClick = { fileMenuExpanded = false; onNewProject() }) { Text("New Project", color = MaterialTheme.colors.onSurface) }
+                DropdownMenuItem(onClick = { fileMenuExpanded = false; onCloseProject() }) { Text("Close Project", color = MaterialTheme.colors.onSurface) }
                 Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f))
                 DropdownMenuItem(onClick = { fileMenuExpanded = false; onImportCsv() }) { Text("Import CSV...", color = MaterialTheme.colors.onSurface) }
                 DropdownMenuItem(onClick = { fileMenuExpanded = false; onExportPdf() }) { Text("Export PDF...", color = MaterialTheme.colors.onSurface) }
