@@ -18,6 +18,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.geospatial.processing.auth.LicenseManager
 import com.geospatial.processing.auth.LicenseStorage
 import com.geospatial.processing.ui.LockScreen
+import com.geospatial.processing.ui.components.CustomTitleBar
 import com.geospatial.processing.ui.navigation.AppRouter
 import com.geospatial.processing.ui.theme.GeospatialEnterpriseTheme
 import com.geospatial.processing.utils.TrialManager
@@ -83,6 +84,14 @@ fun main() = application {
 
             GeospatialEnterpriseTheme {
                 Column(modifier = Modifier.fillMaxSize()) {
+
+                    CustomTitleBar(
+                        windowState = windowState,
+                        onCloseApp = {
+                            exitApplication()
+                            exitProcess(0)
+                        }
+                    )
 
                     // 1. Core State Machine Workspace (Takes up all available height)
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {

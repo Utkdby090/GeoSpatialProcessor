@@ -30,7 +30,11 @@ fun FrameWindowScope.AppRouter(
     windowState: WindowState,
     onCloseApp: () -> Unit
 ) {
-    var currentAppState by remember { mutableStateOf<AppState>(AppState.WorkspaceSelection) }
+    var currentAppState by remember { mutableStateOf<AppState>(com.geospatial.processing.utils.WorkspacePrefs.getLastWorkspace()?.let { savedDir ->
+        // If found, immediately boot into the Dashboard!
+        DatabaseConnectionManager.connectToWorkspace(savedDir)
+        AppState.ProjectDashboard(savedDir)
+    } ?: AppState.WorkspaceSelection) }
 
     when (val state = currentAppState) {
 
@@ -38,6 +42,7 @@ fun FrameWindowScope.AppRouter(
             WorkspaceLauncherUI(
                 onWorkspaceSelected = { workspaceDir ->
                     if (!workspaceDir.exists()) workspaceDir.mkdirs()
+                    com.geospatial.processing.utils.WorkspacePrefs.saveWorkspace(workspaceDir.absolutePath)
                     DatabaseConnectionManager.connectToWorkspace(workspaceDir)
                     currentAppState = AppState.ProjectDashboard(workspaceDir)
                 }
