@@ -164,12 +164,8 @@ fun FrameWindowScope.MainScreen(
 
             Column(modifier = Modifier.fillMaxSize()) {
 
-                // --- 1. NEW CUSTOM THEMED TITLE BAR ---
-                CustomTitleBar(
-                    windowState = windowState,
-                    onCloseApp = onCloseApp,
-                    appName = "GeoSpatial Processor"
-                )
+
+
 
                 // --- 2. CUSTOM IN-APP MENU BAR ---
                 CustomThemeableMenuBar(

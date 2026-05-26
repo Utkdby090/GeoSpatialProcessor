@@ -21,6 +21,8 @@ import com.geospatial.processing.utils.FileUtils
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.material.icons.filled.Share
+
 
 // --- STATE 1: THE WORKSPACE LAUNCHER ---
 @Composable
@@ -28,11 +30,20 @@ fun WorkspaceLauncherUI(onWorkspaceSelected: (File) -> Unit) {
     var selectedPath by remember { mutableStateOf("") }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1F22)), contentAlignment = Alignment.Center) {
-        Card(modifier = Modifier.width(500.dp), backgroundColor = Color(0xFF2B2D30), elevation = 12.dp, shape = RoundedCornerShape(8.dp)) {
+        Card(
+            modifier = Modifier.width(500.dp),
+            backgroundColor = Color(0xFF2B2D30),
+            elevation = 12.dp,
+            shape = RoundedCornerShape(8.dp)
+        ) {
             Column(modifier = Modifier.padding(32.dp)) {
                 Text("Welcome to GeoSpatial V2", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Select a master directory to store your workspace databases and project files.", color = Color.Gray, fontSize = 13.sp)
+                Text(
+                    "Select a master directory to store your workspace databases and project files.",
+                    color = Color.Gray,
+                    fontSize = 13.sp
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -42,7 +53,10 @@ fun WorkspaceLauncherUI(onWorkspaceSelected: (File) -> Unit) {
                         onValueChange = { selectedPath = it },
                         modifier = Modifier.weight(1f),
                         label = { Text("Workspace Path", color = Color.Gray) },
-                        colors = TextFieldDefaults.outlinedTextFieldColors(textColor = Color.White, focusedBorderColor = MaterialTheme.colors.primary)
+                        colors = TextFieldDefaults.outlinedTextFieldColors(
+                            textColor = Color.White,
+                            focusedBorderColor = MaterialTheme.colors.primary
+                        )
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
@@ -79,42 +93,72 @@ fun ProjectDashboardUI(
     onCreateNewProject: () -> Unit
 ) {
     val projects = remember(workspaceDir) {
-        workspaceDir.listFiles()?.filter { it.isDirectory && it.name != ".metadata" }?.sortedByDescending { it.lastModified() } ?: emptyList()
+        workspaceDir.listFiles()?.filter { it.isDirectory && it.name != ".metadata" }
+            ?.sortedByDescending { it.lastModified() } ?: emptyList()
     }
 
     val sdf = SimpleDateFormat("MMM dd, yyyy - HH:mm", Locale.getDefault())
 
+    // 1. THIS IS THE CRITICAL PARENT ROW! It must wrap everything.
     Row(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1F22))) {
-        // LEFT NAV RAIL
+
+        // --- LEFT NAV RAIL ---
         Column(modifier = Modifier.width(220.dp).fillMaxHeight().background(Color(0xFF2B2D30)).padding(16.dp)) {
             Text("GeoSpatial", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
             Text("RCP Workbench", color = MaterialTheme.colors.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-
             Spacer(modifier = Modifier.height(40.dp))
 
-            NavRailItem(icon = Icons.Default.List, label = "Projects", isSelected = true) {}
-            NavRailItem(icon = Icons.Default.Settings, label = "Settings", isSelected = false) {}
-            // FIXED: Replaced missing Extension icon with native Build icon for Plugins mapping
-            NavRailItem(icon = Icons.Default.Build, label = "Plugins", isSelected = false) {}
+            // Note: If you have your NavRailItem components, they go here!
+            // NavRailItem(icon = Icons.Default.List, label = "Projects", isSelected = true) {}
         }
 
-        // RIGHT CONTENT PANE
+        // --- RIGHT CONTENT PANE ---
+        // Because this Column is inside the Row above, .weight(1f) works perfectly!
         Column(modifier = Modifier.weight(1f).fillMaxHeight().padding(32.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text("Projects", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Import Button
+                    // --- FIXED IMPORT BUTTON ---
                     OutlinedButton(
                         onClick = {
-                            val dir = FileUtils.pickDirectory("Open Existing Project", workspaceDir)
-                            if (dir != null) onOpenProject(dir)
+                            val chooser = javax.swing.JFileChooser().apply { dialogTitle = "Import .geox Project" }
+                            if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                                val importedFolder = com.geospatial.processing.utils.ProjectArchiver.importProject(
+                                    chooser.selectedFile,
+                                    workspaceDir
+                                )
+                                if (importedFolder != null) onOpenProject(importedFolder)
+                            }
                         },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        // Explicitly force a transparent background and a clean gray border
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            backgroundColor = androidx.compose.ui.graphics.Color.Transparent,
+                            contentColor = androidx.compose.ui.graphics.Color.White
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.ui.graphics.Color.Gray)
                     ) {
-                        Text("Open...")
+                        Text("Import .geox")
                     }
-                    Button(onClick = onCreateNewProject, colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary)) {
-                        Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+
+                    // New Project Button
+                    Button(
+                        onClick = onCreateNewProject,
+                        colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary)
+                    ) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("New Project", color = Color.White)
                     }
@@ -129,7 +173,6 @@ fun ProjectDashboardUI(
             if (projects.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // FIXED: Replaced missing CreateNewFolder with native Info icon
                         Icon(Icons.Default.Info, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(64.dp))
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("No projects found in this workspace.", color = Color.Gray, fontSize = 14.sp)
@@ -147,14 +190,41 @@ fun ProjectDashboardUI(
                                 .padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // FIXED: Replaced missing FolderOpen with native List icon
-                            Icon(Icons.Default.List, contentDescription = null, tint = MaterialTheme.colors.primary, modifier = Modifier.size(32.dp))
+                            Icon(
+                                Icons.Default.List,
+                                contentDescription = null,
+                                tint = MaterialTheme.colors.primary,
+                                modifier = Modifier.size(32.dp)
+                            )
                             Spacer(modifier = Modifier.width(16.dp))
                             Column {
-                                Text(projectFile.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                                Text(
+                                    projectFile.name,
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
                                 Text(projectFile.absolutePath, color = Color.Gray, fontSize = 12.sp)
                             }
                             Spacer(modifier = Modifier.weight(1f))
+
+                            // Export Icon
+                            IconButton(onClick = {
+                                val chooser = javax.swing.JFileChooser().apply {
+                                    dialogTitle = "Save Project As..."
+                                    selectedFile = File("${projectFile.name}.geox")
+                                }
+                                if (chooser.showSaveDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                                    com.geospatial.processing.utils.ProjectArchiver.exportProject(
+                                        projectFile,
+                                        chooser.selectedFile
+                                    )
+                                }
+                            }) {
+                                Icon(Icons.Default.Share, contentDescription = "Export Project", tint = Color.Gray)
+                            }
+
+                            Spacer(modifier = Modifier.width(16.dp))
                             Text(sdf.format(Date(projectFile.lastModified())), color = Color.Gray, fontSize = 12.sp)
                         }
                     }
@@ -163,6 +233,7 @@ fun ProjectDashboardUI(
         }
     }
 }
+
 
 @Composable
 private fun NavRailItem(

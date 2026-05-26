@@ -1,7 +1,7 @@
 package com.geospatial.processing.data.database
 
-import com.geospatial.processing.config.DatabaseConfig // Assuming this is your current init file
 import org.jetbrains.exposed.sql.Database
+import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.io.File
@@ -18,7 +18,7 @@ object DatabaseConnectionManager {
 
         val dbFile = File(metaDir, "workspace.db")
         connectAndInitialize(dbFile) {
-            // Placeholder for workspace schema
+            // Placeholder for workspace schema tracking
         }
     }
 
@@ -26,28 +26,42 @@ object DatabaseConnectionManager {
     fun connectToProject(projectDir: File) {
         val dbFile = File(projectDir, "project.db")
         connectAndInitialize(dbFile) {
-            // Initialize your EXISTING database tables for this specific project folder
-            DatabaseConfig.init()
+            // 1. Keep the old tables initializing so your current MainScreen doesn't crash
+            com.geospatial.processing.config.DatabaseConfig.init()
+
+            // 2. Initializes the dynamic JSON table from your merged branch!
+            SchemaUtils.create(DynamicAssetsTable)
         }
     }
 
     // Safely drops the current connection and establishes a new SQLite one
     private fun connectAndInitialize(dbFile: File, schemaInit: () -> Unit) {
-        // Close existing connection if any
-        try {
-            TransactionManager.currentOrNull()?.connection?.close()
-        } catch (e: Exception) { e.printStackTrace() }
 
-        // Setup new connection
-        currentDb = Database.connect(
+        // --- 1. BULLETPROOF DISCONNECT ---
+        // Instead of asking Exposed for the "current" transaction, we explicitly
+        // give it our saved Database object and tell it to unregister it.
+        currentDb?.let { oldDb ->
+            try {
+                TransactionManager.closeAndUnregister(oldDb)
+            } catch (e: Exception) {
+                // Safe to ignore closing errors
+            }
+        }
+
+        // --- 2. SETUP NEW CONNECTION ---
+        val newDb = Database.connect(
             url = "jdbc:sqlite:${dbFile.absolutePath}",
             driver = "org.sqlite.JDBC"
         )
+        currentDb = newDb
 
         // Set SQLite specific PRAGMAs for performance
         TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
 
-        transaction {
+        // --- 3. EXPLICIT TRANSACTION ---
+        // By passing 'newDb' directly into the transaction block, we guarantee
+        // Exposed won't get confused about which database to write to.
+        transaction(newDb) {
             schemaInit()
         }
     }
