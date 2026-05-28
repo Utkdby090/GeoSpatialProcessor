@@ -28,7 +28,7 @@ fun LicenseScreen(onLicenseValid: () -> Unit) {
         Text("Software Locked", style = MaterialTheme.typography.h4)
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text("To unlock this software, please provide your Machine ID to the administrator to receive a 10-day license key.")
+        Text("To unlock this software, please provide your Machine ID to the administrator to receive a 30-day license key.")
         Spacer(modifier = Modifier.height(24.dp))
 
         // We use SelectionContainer so the user can easily highlight and copy their ID

@@ -2,33 +2,34 @@ package com.geospatial.processing
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import com.geospatial.processing.config.DatabaseConfig
-import com.geospatial.processing.data.repository.GeoRepository
-import com.geospatial.processing.ui.MainScreen
-import com.geospatial.processing.ui.theme.GeospatialEnterpriseTheme
 import com.geospatial.processing.auth.LicenseManager
 import com.geospatial.processing.auth.LicenseStorage
 import com.geospatial.processing.ui.LockScreen
+import com.geospatial.processing.ui.components.CustomTitleBar
+import com.geospatial.processing.ui.navigation.AppRouter
+import com.geospatial.processing.ui.theme.GeospatialEnterpriseTheme
 import com.geospatial.processing.utils.TrialManager
+import java.awt.Dimension
 import kotlin.system.exitProcess
 
 fun main() = application {
 
     var lockoutReason by remember { mutableStateOf("Activation Required") }
 
-    // 1. EVALUATE SECURITY STATE ON STARTUP
+    // 1. EVALUATE SECURITY STATE ON STARTUP (Preserved from original)
     val initialAuthState = remember {
         val savedLicense = LicenseStorage.getLicense()
 
@@ -58,35 +59,44 @@ fun main() = application {
 
     var isAuthorized by remember { mutableStateOf(initialAuthState) }
 
-    // --- THE ROUTER ---
+    // --- THE MASTER APPLICATION ROUTER ---
     if (isAuthorized) {
-        val repository = remember {
-            DatabaseConfig.init()
-            GeoRepository()
-        }
 
-        // Extract the window state so we can pass it down for our custom Maximize/Minimize buttons
-        val windowState = rememberWindowState(width = 1200.dp, height = 800.dp)
+        // Initialize the OS Window State for the RCP Workspace
+        val windowState = rememberWindowState(
+            position = WindowPosition(Alignment.Center),
+            size = DpSize(1280.dp, 800.dp) // Standard professional desktop starting size
+        )
 
         Window(
             onCloseRequest = {
                 exitApplication()
                 exitProcess(0)
             },
-            title = "GeoSpatial Data Processor",
             state = windowState,
+            title = "GeoSpatial Processor V2.0",
             icon = painterResource("geoSpatialProcessor.png"),
-            undecorated = true,    // HIDES THE DEFAULT OS WINDOW BORDER
-            transparent = false    // Required for undecorated windows to render smoothly
+            undecorated = true, // Removes default Windows/Mac borders so our Custom Title Bar works
+            transparent = false
         ) {
+            // Enforce a minimum window size so the complex Split-Pane UI never gets crushed
+            window.minimumSize = Dimension(900, 600)
+
             GeospatialEnterpriseTheme {
                 Column(modifier = Modifier.fillMaxSize()) {
 
-                    // 1. Main Workspace takes up all available height (weight = 1f)
+                    CustomTitleBar(
+                        windowState = windowState,
+                        onCloseApp = {
+                            exitApplication()
+                            exitProcess(0)
+                        }
+                    )
+
+                    // 1. Core State Machine Workspace (Takes up all available height)
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        // Pass the windowState and a close callback down to the MainScreen
-                        MainScreen(
-                            repository = repository,
+                        // Boot into the Master State Machine instead of directly to MainScreen
+                        AppRouter(
                             windowState = windowState,
                             onCloseApp = {
                                 exitApplication()
@@ -95,13 +105,13 @@ fun main() = application {
                         )
                     }
 
-                    // 2. The Status Bar is pinned to the very bottom
+                    // 2. The Status Bar is pinned to the very bottom (Preserved from original)
                     LicenseStatusBar()
                 }
             }
         }
     } else {
-        // --- THE LOCK SCREEN ---
+        // --- THE SECURITY LOCK SCREEN (Preserved from original) ---
         Window(
             onCloseRequest = {
                 exitApplication()
@@ -132,6 +142,7 @@ fun main() = application {
     }
 }
 
+// --- PRESERVED COMPONENT ---
 @Composable
 fun LicenseStatusBar() {
     var statusMessage by remember { mutableStateOf("Checking license...") }
@@ -166,7 +177,6 @@ fun LicenseStatusBar() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // We can leave this hardcoded as it is a strict status indicator (Green/Red)
             .background(if (isWarning) Color(0xFFD32F2F) else Color(0xFF2E7D32))
             .padding(8.dp),
         horizontalArrangement = Arrangement.Center,
