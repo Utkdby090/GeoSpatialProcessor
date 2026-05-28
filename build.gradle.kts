@@ -29,6 +29,7 @@ dependencies {
     implementation("io.github.willena:sqlite-jdbc:3.45.1.0")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
+    implementation("org.jetbrains.compose.material:material-icons-extended-desktop:1.6.0")
 
     // --- Concurrency ---
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
