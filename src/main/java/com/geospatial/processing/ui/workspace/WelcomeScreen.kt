@@ -535,7 +535,7 @@ fun DeleteProjectDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
-                        Text("Move to OS Recycle Bin", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Move to Recycle Bin", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         Text("If unchecked, the project is only hidden from this list.", color = Color.Gray, fontSize = 12.sp)
                     }
                 }
