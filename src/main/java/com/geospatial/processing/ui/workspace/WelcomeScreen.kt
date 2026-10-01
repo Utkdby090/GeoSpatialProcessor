@@ -13,6 +13,7 @@ import androidx.compose.foundation.onClick
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -150,12 +151,12 @@ fun ProjectDashboardUI(
                                 }
                             },
                             colors = ButtonDefaults.outlinedButtonColors(
-                                backgroundColor = androidx.compose.ui.graphics.Color.Transparent,
-                                contentColor = androidx.compose.ui.graphics.Color.White
+                                backgroundColor = Color.Transparent,
+                                contentColor = Color.White
                             ),
-                            border = androidx.compose.foundation.BorderStroke(
+                            border = BorderStroke(
                                 1.dp,
-                                androidx.compose.ui.graphics.Color.Gray
+                                Color.Gray
                             )
                         ) {
                             Text("Import .geox")
@@ -230,12 +231,12 @@ fun ProjectDashboardUI(
                             } else {
                                 // Fallback if OS blocks trash api
                                 println("Trash not supported. Falling back to soft delete.")
-                                val hiddenFile = java.io.File(targetFile.parentFile, ".deleted_${targetFile.name}")
+                                val hiddenFile = File(targetFile.parentFile, ".deleted_${targetFile.name}")
                                 targetFile.renameTo(hiddenFile)
                             }
                         } else {
                             // SAFE LOGIC 2: Soft delete (Rename)
-                            val hiddenFile = java.io.File(targetFile.parentFile, ".deleted_${targetFile.name}")
+                            val hiddenFile =File(targetFile.parentFile, ".deleted_${targetFile.name}")
                             targetFile.renameTo(hiddenFile)
                         }
                     } catch (e: Exception) {
@@ -267,7 +268,7 @@ fun ProjectDashboardUI(
     }
 }
 
-// ... NavRailItem and ProjectRowWithContextMenu remain exactly the same ...
+
 @Composable
 private fun NavRailItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -322,7 +323,7 @@ private fun ProjectRowWithContextMenu(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                Icons.Default.List,
+                Icons.AutoMirrored.Filled.List,
                 contentDescription = null,
                 tint = MaterialTheme.colors.primary,
                 modifier = Modifier.size(32.dp)
