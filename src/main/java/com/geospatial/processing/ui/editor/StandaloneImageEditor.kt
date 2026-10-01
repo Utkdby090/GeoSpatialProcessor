@@ -7,7 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
-import androidx.compose.ui.res.painterResource
+import com.geospatial.processing.ui.components.rememberAppIcon
 import com.geospatial.processing.ui.getAwtAppIcon
 import com.geospatial.processing.util.ImageUtils
 import org.jetbrains.skia.EncodedImageFormat
@@ -92,7 +92,7 @@ fun StandaloneImageEditorWindow(
         onCloseRequest = onDismiss,
         title = "Image Studio Utility — ${activeFile?.name ?: "No Resource Loaded"}",
         state = windowState,
-        icon = painterResource("geoSpatialProcessor.png")
+        icon = rememberAppIcon()
     ) {
         Column(modifier = Modifier.fillMaxSize().background(Color(0xFF20252B))) {
 
@@ -115,7 +115,7 @@ fun StandaloneImageEditorWindow(
                     }
 
                     Spacer(modifier = Modifier.width(16.dp))
-                    Divider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.15f))
+                    HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.15f))
                     Spacer(modifier = Modifier.width(16.dp))
 
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -126,7 +126,7 @@ fun StandaloneImageEditorWindow(
                             Icon(Icons.Default.Search, "Reset View (100%)", tint = Color.White.copy(alpha = 0.8f))
                         }
                         IconButton(onClick = { shapes = emptyList() }) {
-                            Icon(Icons.Default.Delete, "Purge Canvas Data", tint = MaterialTheme.colors.error)
+                            Icon(Icons.Default.Delete, "Purge Canvas Data", tint = MaterialTheme.colorScheme.error)
                         }
                     }
 
@@ -139,7 +139,7 @@ fun StandaloneImageEditorWindow(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (activeFile == null) {
                         Button(
-                            colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             onClick = {
                                 val file = pickHighResImageFile()
                                 if (file != null) {
@@ -161,7 +161,7 @@ fun StandaloneImageEditorWindow(
 
                     if (activeFile != null && originalSkiaImage != null) {
                         Button(
-                            colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                             onClick = {
                                 val exportedBytes = burnShapesToImage(originalSkiaImage!!, canvasSize.toSize(), shapes)
                                 if (exportedBytes != null) {
@@ -188,7 +188,7 @@ fun StandaloneImageEditorWindow(
                 }
             }
 
-            Divider(color = Color.Black.copy(alpha = 0.3f))
+            HorizontalDivider(color = Color.Black.copy(alpha = 0.3f))
 
             // --- 2. LARGE CANVAS WORKSPACE (MAXIMIZED AREA) ---
             Box(
@@ -259,9 +259,9 @@ fun StandaloneImageEditorWindow(
 // --- TEXT-BASED RIBBON COMPONENT CONFIGURATION ---
 @Composable
 private fun ProfessionalToolButton(label: String, isSelected: Boolean, onClick: () -> Unit) {
-    val bgColor = if (isSelected) MaterialTheme.colors.secondary.copy(alpha = 0.15f) else Color.Transparent
-    val borderStrokeColor = if (isSelected) MaterialTheme.colors.secondary.copy(alpha = 0.4f) else Color.Transparent
-    val tint = if (isSelected) MaterialTheme.colors.secondary else Color.White.copy(alpha = 0.75f)
+    val bgColor = if (isSelected) MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f) else Color.Transparent
+    val borderStrokeColor = if (isSelected) MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f) else Color.Transparent
+    val tint = if (isSelected) MaterialTheme.colorScheme.secondary else Color.White.copy(alpha = 0.75f)
 
     Box(
         modifier = Modifier
@@ -345,10 +345,10 @@ private fun burnShapesToImage(originalImage: SkiaImage, screenCanvasSize: Size, 
             when (shape.tool) {
                 DrawTool.PEN -> {
                     if (shape.points.size > 1) {
-                        val path = org.jetbrains.skia.Path().apply {
+                        val path = org.jetbrains.skia.PathBuilder().apply {
                             moveTo(startX, startY)
                             for (i in 1 until shape.points.size) lineTo(shape.points[i].x * scaleX, shape.points[i].y * scaleY)
-                        }
+                        }.detach()
                         canvas.drawPath(path, paint)
                     }
                 }

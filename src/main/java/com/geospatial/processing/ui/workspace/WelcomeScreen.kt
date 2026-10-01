@@ -11,9 +11,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.onClick
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
+import androidx.compose.material3.*
+import com.geospatial.processing.ui.components.CursorDropdownMenu
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,8 +39,8 @@ fun WorkspaceLauncherUI(onWorkspaceSelected: (File) -> Unit) {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1F22)), contentAlignment = Alignment.Center) {
         Card(
             modifier = Modifier.width(500.dp),
-            backgroundColor = Color(0xFF2B2D30),
-            elevation = 12.dp,
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2D30)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
             shape = RoundedCornerShape(8.dp)
         ) {
             Column(modifier = Modifier.padding(32.dp)) {
@@ -58,9 +60,10 @@ fun WorkspaceLauncherUI(onWorkspaceSelected: (File) -> Unit) {
                         onValueChange = { selectedPath = it },
                         modifier = Modifier.weight(1f),
                         label = { Text("Workspace Path", color = Color.Gray) },
-                        colors = TextFieldDefaults.outlinedTextFieldColors(
-                            textColor = Color.White,
-                            focusedBorderColor = MaterialTheme.colors.primary
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary
                         )
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -121,7 +124,7 @@ fun ProjectDashboardUI(
                 Text("GeoFlux", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
                 Text(
                     "data processor",
-                    color = MaterialTheme.colors.primary,
+                    color = MaterialTheme.colorScheme.primary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -157,7 +160,7 @@ fun ProjectDashboardUI(
                                 }
                             },
                             colors = ButtonDefaults.outlinedButtonColors(
-                                backgroundColor = androidx.compose.ui.graphics.Color.Transparent,
+                                containerColor = androidx.compose.ui.graphics.Color.Transparent,
                                 contentColor = androidx.compose.ui.graphics.Color.White
                             ),
                             border = androidx.compose.foundation.BorderStroke(
@@ -171,7 +174,7 @@ fun ProjectDashboardUI(
                         // New Project Button
                         Button(
                             onClick = onCreateNewProject,
-                            colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary)
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
                             Icon(
                                 Icons.Default.Add,
@@ -186,7 +189,7 @@ fun ProjectDashboardUI(
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Divider(color = Color.DarkGray)
+                HorizontalDivider(color = Color.DarkGray)
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Project List Workspace Region
@@ -291,8 +294,8 @@ private fun NavRailItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val bgColor = if (isSelected) MaterialTheme.colors.primary.copy(alpha = 0.15f) else Color.Transparent
-    val tint = if (isSelected) MaterialTheme.colors.primary else Color.Gray
+    val bgColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent
+    val tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray
 
     Row(
         modifier = Modifier
@@ -339,9 +342,9 @@ private fun ProjectRowWithContextMenu(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                Icons.Default.List,
+                Icons.AutoMirrored.Filled.List,
                 contentDescription = null,
-                tint = MaterialTheme.colors.primary,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(32.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
@@ -384,21 +387,21 @@ private fun ProjectRowWithContextMenu(
             DropdownMenuItem(onClick = {
                 isContextMenuVisible = false
                 onOpenProject(projectFile)
-            }) {
+            }, text = {
                 Text("Open Project")
-            }
+            })
             DropdownMenuItem(onClick = {
                 isContextMenuVisible = false
                 onEditProject(projectFile)
-            }) {
+            }, text = {
                 Text("Modify Details")
-            }
+            })
             DropdownMenuItem(onClick = {
                 isContextMenuVisible = false
                 onDeleteProject(projectFile)
-            }) {
+            }, text = {
                 Text("Delete Project", color = Color.Red)
-            }
+            })
         }
     }
 }
@@ -423,8 +426,8 @@ fun ModifyProjectDialog(
         Card(
             modifier = Modifier.width(500.dp),
             shape = RoundedCornerShape(12.dp),
-            backgroundColor = Color.White,
-            elevation = 24.dp
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 24.dp)
         ) {
             Column(modifier = Modifier.padding(32.dp)) {
                 Text("Modify Project Details", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Black)
@@ -439,8 +442,9 @@ fun ModifyProjectDialog(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Project Name") },
                     singleLine = true,
-                    colors = TextFieldDefaults.outlinedTextFieldColors(
-                        textColor = Color.Black,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.Black,
+                        unfocusedTextColor = Color.Black,
                         unfocusedBorderColor = Color.LightGray,
                         focusedBorderColor = Color.Black,
                         focusedLabelColor = Color.Black
@@ -459,8 +463,8 @@ fun ModifyProjectDialog(
                         width = if (isTelecomSelected) 2.dp else 1.dp,
                         color = if (isTelecomSelected) Color.Black else Color.LightGray
                     ),
-                    backgroundColor = if (isTelecomSelected) Color(0xFFF5F5F5) else Color.White,
-                    elevation = 0.dp
+                    colors = CardDefaults.cardColors(containerColor = if (isTelecomSelected) Color(0xFFF5F5F5) else Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(16.dp),
@@ -492,7 +496,7 @@ fun ModifyProjectDialog(
                     Button(
                         onClick = { onSave(projectName) },
                         colors = ButtonDefaults.buttonColors(
-                            backgroundColor = Color(0xFF2A2A2E), // Dark button
+                            containerColor = Color(0xFF2A2A2E), // Dark button
                             contentColor = Color.White
                         ),
                         enabled = projectName.isNotBlank()
@@ -524,8 +528,8 @@ fun DeleteProjectDialog(
         Card(
             modifier = Modifier.width(450.dp),
             shape = RoundedCornerShape(8.dp),
-            backgroundColor = Color(0xFF2B2D30),
-            elevation = 24.dp
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2D30)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 24.dp)
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text("Remove Project", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -568,7 +572,7 @@ fun DeleteProjectDialog(
                     OutlinedButton(
                         onClick = onDismiss,
                         colors = ButtonDefaults.outlinedButtonColors(
-                            backgroundColor = Color.Transparent,
+                            containerColor = Color.Transparent,
                             contentColor = Color.White
                         ),
                         border = BorderStroke(1.dp, Color.Gray)
@@ -579,7 +583,7 @@ fun DeleteProjectDialog(
                     Button(
                         onClick = { onConfirm(moveToTrash) },
                         colors = ButtonDefaults.buttonColors(
-                            backgroundColor = if (moveToTrash) Color(0xFFD32F2F) else MaterialTheme.colors.primary,
+                            containerColor = if (moveToTrash) Color(0xFFD32F2F) else MaterialTheme.colorScheme.primary,
                             contentColor = Color.White
                         )
                     ) {
@@ -608,8 +612,8 @@ private fun NoticeDialog(
         Card(
             modifier = Modifier.width(450.dp),
             shape = RoundedCornerShape(8.dp),
-            backgroundColor = Color(0xFF2B2D30),
-            elevation = 24.dp
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2D30)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 24.dp)
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -619,7 +623,7 @@ private fun NoticeDialog(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Button(
                         onClick = onDismiss,
-                        colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary, contentColor = Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color.White)
                     ) { Text("OK") }
                 }
             }

@@ -1,10 +1,9 @@
 plugins {
-    kotlin("jvm") version "1.9.21"
-    id("org.jetbrains.compose") version "1.5.11"
-    // --- 1. THE CONVEYOR PLUGIN ---
-    id("dev.hydraulic.conveyor") version "1.12"
-
-    kotlin("plugin.serialization") version "1.9.21"
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.compose.multiplatform)
+    alias(libs.plugins.conveyor)
 }
 
 group = "com.geospatial.processing"
@@ -12,42 +11,40 @@ version = "1.0.0"
 
 repositories {
     mavenCentral()
-    maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
     google()
 }
 
+kotlin {
+    jvmToolchain(17)
+}
+
 dependencies {
-    // This single line handles pulling the correct Windows UI artifacts
-    // for Conveyor when you build on your Windows machine.
+    // Pulls the correct native UI artifacts for the OS you build on (Windows for Conveyor builds).
     implementation(compose.desktop.currentOs)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
 
     // --- Database Layer (JetBrains Exposed + SQLite) ---
-    // The SQLite3MultipleCiphers driver (willena) is still needed to READ legacy encrypted data
-    // during the one-time LegacyDatabaseMigrator import. Project databases are plain SQLite.
-    implementation("org.jetbrains.exposed:exposed-core:0.50.1")
-    implementation("org.jetbrains.exposed:exposed-dao:0.50.1")
-    implementation("org.jetbrains.exposed:exposed-jdbc:0.50.1")
-    implementation("org.jetbrains.exposed:exposed-java-time:0.50.1")
-    implementation("io.github.willena:sqlite-jdbc:3.45.1.0")
-    implementation("com.google.code.gson:gson:2.10.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
-    implementation("org.jetbrains.compose.material:material-icons-extended-desktop:1.6.0")
+    implementation(libs.exposed.core)
+    implementation(libs.exposed.dao)
+    implementation(libs.exposed.jdbc)
+    implementation(libs.exposed.java.time)
+    implementation(libs.sqlite.jdbc)
+    implementation(libs.gson)
+    implementation(libs.kotlinx.serialization.json)
 
     // --- Concurrency ---
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
+    implementation(libs.kotlinx.coroutines.core)
 
     // --- Logging ---
-    implementation("org.slf4j:slf4j-api:2.0.9")
-    implementation("ch.qos.logback:logback-classic:1.4.14")
+    implementation(libs.slf4j.api)
+    implementation(libs.logback.classic)
 
-    //proGuard
     // --- File Processing ---
-    implementation("org.apache.commons:commons-csv:1.10.0")
-    implementation("com.github.librepdf:openpdf:1.3.30")
-
-    // --- Cryptography for OpenPDF (Required for ProGuard Verifier) ---
-    implementation("org.bouncycastle:bcprov-jdk18on:1.77")
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.77")
+    implementation(libs.commons.csv)
+    implementation(libs.openpdf)
+    implementation(libs.bouncycastle.prov)
+    implementation(libs.bouncycastle.pkix)
 
     // --- Testing ---
     testImplementation(kotlin("test"))
@@ -57,22 +54,13 @@ tasks.test {
     useJUnitPlatform()
 }
 
-configurations.all {
-    resolutionStrategy.eachDependency {
-        if (requested.group == "org.jetbrains.kotlin" && requested.name.startsWith("kotlin-stdlib")) {
-            useVersion("1.9.21")
-        }
-    }
-}
-
-
-// --- UNIFIED COMPOSE BLOCK ---
 compose.desktop {
     application {
         mainClass = "com.geospatial.processing.MainKt"
 
         buildTypes.release.proguard {
             // ProGuard is ON for the final release build
+            version.set(libs.versions.proguard)
             isEnabled.set(true)
             obfuscate.set(true)
             optimize.set(true)
@@ -82,4 +70,4 @@ compose.desktop {
             modules("java.sql", "java.naming")
         }
     }
-}
+}

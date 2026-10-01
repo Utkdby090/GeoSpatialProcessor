@@ -1,7 +1,7 @@
 package com.geospatial.processing.ui.components
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -35,8 +35,9 @@ fun DynamicFormEngine(
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
                                     isError = field.isRequired && currentValue.isBlank(),
-                                    colors = TextFieldDefaults.outlinedTextFieldColors(
-                                        textColor = MaterialTheme.colors.onSurface
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                                     )
                                 )
                             }

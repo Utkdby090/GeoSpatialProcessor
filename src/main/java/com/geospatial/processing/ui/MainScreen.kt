@@ -8,7 +8,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.window.WindowDraggableArea
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Create
@@ -159,8 +159,8 @@ fun FrameWindowScope.MainScreen(
         }
     }
 
-    AppTheme(darkTheme = isDarkTheme) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
+    GeospatialEnterpriseTheme(darkTheme = isDarkTheme) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
 
             Column(modifier = Modifier.fillMaxSize()) {
 
@@ -184,7 +184,7 @@ fun FrameWindowScope.MainScreen(
 
                 )
 
-                Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
 
                 // --- 3. ROOT NAVIGATION LOGIC ---
                 if (records.isEmpty()) {
@@ -193,7 +193,7 @@ fun FrameWindowScope.MainScreen(
                     Row(modifier = Modifier.fillMaxSize()) {
 
                         // LEFT PANE: Tree View
-                        Box(modifier = Modifier.weight(0.3f).fillMaxHeight().background(MaterialTheme.colors.surface).padding(end = 1.dp)) {
+                        Box(modifier = Modifier.weight(0.3f).fillMaxHeight().background(MaterialTheme.colorScheme.surface).padding(end = 1.dp)) {
                             TreeView(
                                 records = displayedRecords,
                                 selectedRecord = selectedRecord,
@@ -210,7 +210,7 @@ fun FrameWindowScope.MainScreen(
                         }
 
                         // VERTICAL DIVIDER
-                        Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colors.onSurface.copy(alpha = 0.12f)))
+                        Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)))
 
                         // RIGHT PANE: Detail View
                         Box(modifier = Modifier.weight(0.7f).fillMaxHeight()) {
@@ -239,13 +239,13 @@ fun FrameWindowScope.MainScreen(
             // --- OVERLAYS & DIALOGS ---
             if (isImporting) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).clickable(enabled = false) {}, contentAlignment = Alignment.Center) {
-                    Card(modifier = Modifier.width(350.dp).padding(16.dp), backgroundColor = MaterialTheme.colors.surface) {
+                    Card(modifier = Modifier.width(350.dp).padding(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Column(modifier = Modifier.padding(24.dp)) {
-                            Text(importStatusText, style = MaterialTheme.typography.h6, color = MaterialTheme.colors.onSurface)
+                            Text(importStatusText, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.height(16.dp))
-                            LinearProgressIndicator(progress = importProgress, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colors.secondary)
+                            LinearProgressIndicator(progress = { importProgress }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondary)
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("${(importProgress * 100).toInt()}% Complete", color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f))
+                            Text("${(importProgress * 100).toInt()}% Complete", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                         }
                     }
                 }
@@ -253,13 +253,13 @@ fun FrameWindowScope.MainScreen(
 
             if (isExporting) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).clickable(enabled = false) {}, contentAlignment = Alignment.Center) {
-                    Card(modifier = Modifier.width(400.dp).padding(16.dp), backgroundColor = MaterialTheme.colors.surface) {
+                    Card(modifier = Modifier.width(400.dp).padding(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Column(modifier = Modifier.padding(24.dp)) {
-                            Text("Generating Bulk ZIP...", style = MaterialTheme.typography.h6, color = MaterialTheme.colors.onSurface)
+                            Text("Generating Bulk ZIP...", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.height(16.dp))
-                            LinearProgressIndicator(progress = exportProgressRatio, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colors.secondary)
+                            LinearProgressIndicator(progress = { exportProgressRatio }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondary)
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text(exportStatusText, style = MaterialTheme.typography.body2, color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f))
+                            Text(exportStatusText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                         }
                     }
                 }
@@ -268,16 +268,16 @@ fun FrameWindowScope.MainScreen(
             if (showClearConfirmDialog) {
                 AlertDialog(
                     onDismissRequest = { showClearConfirmDialog = false },
-                    backgroundColor = MaterialTheme.colors.surface,
-                    title = { Text("Start New Project?", color = MaterialTheme.colors.onSurface) },
-                    text = { Text("This will delete all current tower records and photos. This action cannot be undone.", color = MaterialTheme.colors.onSurface.copy(alpha = 0.8f)) },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    title = { Text("Start New Project?", color = MaterialTheme.colorScheme.onSurface) },
+                    text = { Text("This will delete all current tower records and photos. This action cannot be undone.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)) },
                     confirmButton = {
-                        Button(onClick = { doClearAll() }, colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.error, contentColor = Color.White)) {
+                        Button(onClick = { doClearAll() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = Color.White)) {
                             Text("Yes, Clear All")
                         }
                     },
                     dismissButton = {
-                        OutlinedButton(onClick = { showClearConfirmDialog = false }) { Text("Cancel", color = MaterialTheme.colors.onSurface) }
+                        OutlinedButton(onClick = { showClearConfirmDialog = false }) { Text("Cancel", color = MaterialTheme.colorScheme.onSurface) }
                     }
                 )
             }
@@ -285,19 +285,19 @@ fun FrameWindowScope.MainScreen(
             if (showImportSuccessDialog) {
                 AlertDialog(
                     onDismissRequest = { showImportSuccessDialog = false },
-                    backgroundColor = MaterialTheme.colors.surface,
-                    title = { Text("Import Successful", color = MaterialTheme.colors.secondary) },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    title = { Text("Import Successful", color = MaterialTheme.colorScheme.secondary) },
                     text = {
                         Column {
-                            Text("The tower metrics have been loaded successfully.", color = MaterialTheme.colors.onSurface)
+                            Text("The tower metrics have been loaded successfully.", color = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text("The app is now automatically syncing photos from your root directory:", color = MaterialTheme.colors.onSurface)
-                            Text(text = rootImageDirectory, fontWeight = FontWeight.Bold, color = MaterialTheme.colors.onSurface, modifier = Modifier.padding(vertical = 8.dp))
-                            Text("Please ensure your tower folders (e.g., '76_0') are placed in this location to view the images.", color = MaterialTheme.colors.onSurface)
+                            Text("The app is now automatically syncing photos from your root directory:", color = MaterialTheme.colorScheme.onSurface)
+                            Text(text = rootImageDirectory, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(vertical = 8.dp))
+                            Text("Please ensure your tower folders (e.g., '76_0') are placed in this location to view the images.", color = MaterialTheme.colorScheme.onSurface)
                         }
                     },
                     confirmButton = {
-                        Button(onClick = { showImportSuccessDialog = false }, colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary, contentColor = Color.White)) {
+                        Button(onClick = { showImportSuccessDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary, contentColor = Color.White)) {
                             Text("Got it")
                         }
                     }
@@ -326,22 +326,22 @@ fun FrameWindowScope.CustomTitleBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(32.dp)
-                .background(MaterialTheme.colors.background),
+                .background(MaterialTheme.colorScheme.background),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = appName,
-                color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 fontSize = 12.sp,
                 modifier = Modifier.padding(start = 16.dp)
             )
 
             Row {
-                val baseIconColor = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
-                val hoverIconColor = MaterialTheme.colors.onSurface
-                val hoverBgColor = MaterialTheme.colors.onSurface.copy(alpha = 0.1f)
-                val appBgColor = MaterialTheme.colors.background
+                val baseIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                val hoverIconColor = MaterialTheme.colorScheme.onSurface
+                val hoverBgColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                val appBgColor = MaterialTheme.colorScheme.background
 
                 // 1. Minimize Button
                 val minInteraction = remember { MutableInteractionSource() }
@@ -441,54 +441,54 @@ fun CustomThemeableMenuBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colors.surface)
+            .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = 8.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box {
-            TextButton(onClick = { fileMenuExpanded = true }) { Text("File", color = MaterialTheme.colors.onSurface) }
-            DropdownMenu(expanded = fileMenuExpanded, onDismissRequest = { fileMenuExpanded = false }, modifier = Modifier.background(MaterialTheme.colors.surface)) {
-                DropdownMenuItem(onClick = { fileMenuExpanded = false; onNewProject() }) { Text("New Project", color = MaterialTheme.colors.onSurface) }
-                DropdownMenuItem(onClick = { fileMenuExpanded = false; onCloseProject() }) { Text("Close Project", color = MaterialTheme.colors.onSurface) }
-                Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f))
-                DropdownMenuItem(onClick = { fileMenuExpanded = false; onImportCsv() }) { Text("Import CSV...", color = MaterialTheme.colors.onSurface) }
-                DropdownMenuItem(onClick = { fileMenuExpanded = false; onExportPdf() }) { Text("Export PDF...", color = MaterialTheme.colors.onSurface) }
-                Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f))
-                DropdownMenuItem(onClick = { fileMenuExpanded = false; onExit() }) { Text("Exit", color = MaterialTheme.colors.onSurface) }
+            TextButton(onClick = { fileMenuExpanded = true }) { Text("File", color = MaterialTheme.colorScheme.onSurface) }
+            DropdownMenu(expanded = fileMenuExpanded, onDismissRequest = { fileMenuExpanded = false }, modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
+                DropdownMenuItem(onClick = { fileMenuExpanded = false; onNewProject() }, text = { Text("New Project", color = MaterialTheme.colorScheme.onSurface) })
+                DropdownMenuItem(onClick = { fileMenuExpanded = false; onCloseProject() }, text = { Text("Close Project", color = MaterialTheme.colorScheme.onSurface) })
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                DropdownMenuItem(onClick = { fileMenuExpanded = false; onImportCsv() }, text = { Text("Import CSV...", color = MaterialTheme.colorScheme.onSurface) })
+                DropdownMenuItem(onClick = { fileMenuExpanded = false; onExportPdf() }, text = { Text("Export PDF...", color = MaterialTheme.colorScheme.onSurface) })
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                DropdownMenuItem(onClick = { fileMenuExpanded = false; onExit() }, text = { Text("Exit", color = MaterialTheme.colorScheme.onSurface) })
             }
         }
 
         Box {
-            TextButton(onClick = { editMenuExpanded = true }) { Text("Edit", color = MaterialTheme.colors.onSurface) }
-            DropdownMenu(expanded = editMenuExpanded, onDismissRequest = { editMenuExpanded = false }, modifier = Modifier.background(MaterialTheme.colors.surface)) {
-                DropdownMenuItem(onClick = { editMenuExpanded = false; onDeleteSelected() }, enabled = hasSelection) {
-                    Text("Delete Selected", color = if (hasSelection) MaterialTheme.colors.onSurface else MaterialTheme.colors.onSurface.copy(alpha = 0.3f))
-                }
-                DropdownMenuItem(onClick = { editMenuExpanded = false; onClearAllData() }) { Text("Clear All Data", color = MaterialTheme.colors.error) }
+            TextButton(onClick = { editMenuExpanded = true }) { Text("Edit", color = MaterialTheme.colorScheme.onSurface) }
+            DropdownMenu(expanded = editMenuExpanded, onDismissRequest = { editMenuExpanded = false }, modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
+                DropdownMenuItem(onClick = { editMenuExpanded = false; onDeleteSelected() }, enabled = hasSelection, text = {
+                    Text("Delete Selected", color = if (hasSelection) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
+                })
+                DropdownMenuItem(onClick = { editMenuExpanded = false; onClearAllData() }, text = { Text("Clear All Data", color = MaterialTheme.colorScheme.error) })
             }
         }
 
         Box {
-            TextButton(onClick = { viewMenuExpanded = true }) { Text("View", color = MaterialTheme.colors.onSurface) }
-            DropdownMenu(expanded = viewMenuExpanded, onDismissRequest = { viewMenuExpanded = false }, modifier = Modifier.background(MaterialTheme.colors.surface)) {
-                DropdownMenuItem(onClick = { viewMenuExpanded = false; onRefreshList() }) { Text("Refresh List", color = MaterialTheme.colors.onSurface) }
-                Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f))
-                DropdownMenuItem(onClick = { viewMenuExpanded = false; onThemeToggle() }) {
-                    Text(if (isDarkTheme) "Switch to Light Mode" else "Switch to Dark Mode", color = MaterialTheme.colors.onSurface)
-                }
+            TextButton(onClick = { viewMenuExpanded = true }) { Text("View", color = MaterialTheme.colorScheme.onSurface) }
+            DropdownMenu(expanded = viewMenuExpanded, onDismissRequest = { viewMenuExpanded = false }, modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
+                DropdownMenuItem(onClick = { viewMenuExpanded = false; onRefreshList() }, text = { Text("Refresh List", color = MaterialTheme.colorScheme.onSurface) })
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                DropdownMenuItem(onClick = { viewMenuExpanded = false; onThemeToggle() }, text = {
+                    Text(if (isDarkTheme) "Switch to Light Mode" else "Switch to Dark Mode", color = MaterialTheme.colorScheme.onSurface)
+                })
             }
         }
 
         // --- TOOLS MENU (Now correctly inside the Row) ---
         Box {
-            TextButton(onClick = { toolsMenuExpanded = true }) { Text("Tools", color = MaterialTheme.colors.onSurface) }
-            DropdownMenu(expanded = toolsMenuExpanded, onDismissRequest = { toolsMenuExpanded = false }, modifier = Modifier.background(MaterialTheme.colors.surface)) {
+            TextButton(onClick = { toolsMenuExpanded = true }) { Text("Tools", color = MaterialTheme.colorScheme.onSurface) }
+            DropdownMenu(expanded = toolsMenuExpanded, onDismissRequest = { toolsMenuExpanded = false }, modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
                 DropdownMenuItem(onClick = {
                     toolsMenuExpanded = false
                     onOpenTools()
-                }) {
-                    Text("Image Annotation Utility", color = MaterialTheme.colors.onSurface)
-                }
+                }, text = {
+                    Text("Image Annotation Utility", color = MaterialTheme.colorScheme.onSurface)
+                })
             }
         }
     }
@@ -505,31 +505,31 @@ fun StatusIndicator(status: RecordStatus) {
 
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(indicatorColor))
-        Text(text = status.name, color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = status.name, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
 @Composable
 fun NoSelectionView() {
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(modifier = Modifier.size(64.dp), imageVector = Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colors.onSurface.copy(alpha = 0.3f))
+        Icon(modifier = Modifier.size(64.dp), imageVector = Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
         Spacer(modifier = Modifier.height(16.dp))
-        Text("No Tower Selected", style = MaterialTheme.typography.h5, color = MaterialTheme.colors.onBackground)
+        Text("No Tower Selected", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Select a tower from the left menu to view details", style = MaterialTheme.typography.body2, color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f))
+        Text("Select a tower from the left menu to view details", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
     }
 }
 
 @Composable
 fun NoProjectView(onImportClicked: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(imageVector = Icons.Default.Create, contentDescription = "No Data", modifier = Modifier.size(64.dp), tint = MaterialTheme.colors.onSurface.copy(alpha = 0.3f))
+        Icon(imageVector = Icons.Default.Create, contentDescription = "No Data", modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
         Spacer(modifier = Modifier.height(16.dp))
-        Text("No Project Loaded", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colors.onBackground)
+        Text("No Project Loaded", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Import a geospatial CSV file to begin processing.", fontSize = 14.sp, color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f))
+        Text("Import a geospatial CSV file to begin processing.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
         Spacer(modifier = Modifier.height(24.dp))
-        Button(onClick = onImportClicked, colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)) {
+        Button(onClick = onImportClicked, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)) {
             Text("Import CSV", color = Color.White)
         }
     }

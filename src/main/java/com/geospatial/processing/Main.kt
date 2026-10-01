@@ -2,12 +2,12 @@ package com.geospatial.processing
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.Text
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
+import com.geospatial.processing.ui.components.rememberAppIcon
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -80,7 +80,7 @@ fun main() = application {
             },
             state = windowState,
             title = "GeoSpatial Processor V2.0",
-            icon = painterResource("geoSpatialProcessor.png"),
+            icon = rememberAppIcon(),
             undecorated = true, // Removes default Windows/Mac borders so our Custom Title Bar works
             transparent = false
         ) {
@@ -124,7 +124,7 @@ fun main() = application {
             },
             title = lockoutReason,
             state = rememberWindowState(width = 600.dp, height = 550.dp),
-            icon = painterResource("geoSpatialProcessor.png")
+            icon = rememberAppIcon()
             // Note: We leave the lock screen decorated so it looks like a standard system prompt.
         ) {
             GeospatialEnterpriseTheme {
