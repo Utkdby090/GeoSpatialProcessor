@@ -21,7 +21,9 @@ dependencies {
     // for Conveyor when you build on your Windows machine.
     implementation(compose.desktop.currentOs)
 
-    // --- Database Layer (JetBrains Exposed + SQLCipher) ---
+    // --- Database Layer (JetBrains Exposed + SQLite) ---
+    // The SQLite3MultipleCiphers driver (willena) is still needed to READ legacy encrypted data
+    // during the one-time LegacyDatabaseMigrator import. Project databases are plain SQLite.
     implementation("org.jetbrains.exposed:exposed-core:0.50.1")
     implementation("org.jetbrains.exposed:exposed-dao:0.50.1")
     implementation("org.jetbrains.exposed:exposed-jdbc:0.50.1")
@@ -46,6 +48,13 @@ dependencies {
     // --- Cryptography for OpenPDF (Required for ProGuard Verifier) ---
     implementation("org.bouncycastle:bcprov-jdk18on:1.77")
     implementation("org.bouncycastle:bcpkix-jdk18on:1.77")
+
+    // --- Testing ---
+    testImplementation(kotlin("test"))
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 configurations.all {
@@ -73,4 +82,4 @@ compose.desktop {
             modules("java.sql", "java.naming")
         }
     }
-}
+}

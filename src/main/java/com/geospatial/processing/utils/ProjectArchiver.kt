@@ -3,73 +3,166 @@ package com.geospatial.processing.utils
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
+import java.util.UUID
 import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 object ProjectArchiver {
 
+    sealed class ImportResult {
+        data class Success(val projectDir: File) : ImportResult()
+        data class Failure(val reason: String) : ImportResult()
+    }
+
+    /** Files that must never be shipped inside a .geox (live SQLite side-files, OS junk). */
+    private val EXCLUDED_SUFFIXES = listOf("-wal", "-shm", "-journal", ".tmp")
+    private val EXCLUDED_NAMES = setOf("thumbs.db", ".ds_store", "desktop.ini")
+
+    private const val MAX_ENTRIES = 500_000
+    private const val DISK_SAFETY_MARGIN_BYTES = 512L * 1024 * 1024 // keep 512 MB free
+    private const val COPY_BUFFER = 64 * 1024
+
     /**
-     * Packages a project directory into a single .geox file for sharing.
+     * Packages a project directory into a single .geox file.
+     * The project must be CLOSED (not the active database) when this runs.
      */
     fun exportProject(projectDir: File, destinationZip: File): Boolean {
+        val tmp = File(destinationZip.parentFile, destinationZip.name + ".partial")
         return try {
-            FileOutputStream(destinationZip).use { fos ->
+            FileOutputStream(tmp).use { fos ->
                 ZipOutputStream(fos).use { zos ->
-                    projectDir.walkTopDown().forEach { file ->
-                        if (file.isFile) {
-                            // Calculate the relative path so the folder structure is preserved in the zip
-                            val entryName = projectDir.name + "/" + file.relativeTo(projectDir).path.replace("\\", "/")
-                            zos.putNextEntry(ZipEntry(entryName))
-                            FileInputStream(file).use { fis -> fis.copyTo(zos) }
+                    projectDir.walkTopDown()
+                        .filter { it.isFile && !isExcluded(it) }
+                        .forEach { file ->
+                            val relative = file.relativeTo(projectDir).invariantSeparatorsPath
+                            zos.putNextEntry(ZipEntry("${projectDir.name}/$relative"))
+                            FileInputStream(file).use { it.copyTo(zos, COPY_BUFFER) }
                             zos.closeEntry()
                         }
-                    }
                 }
             }
-            true
+            // Only replace the destination once the archive is complete.
+            if (destinationZip.exists()) destinationZip.delete()
+            tmp.renameTo(destinationZip)
         } catch (e: Exception) {
             e.printStackTrace()
+            tmp.delete()
             false
         }
     }
 
     /**
-     * Unzips a .geox file into the user's current Master Workspace.
+     * Safely unpacks a .geox file into [workspaceDir].
+     *
+     * Security & integrity guarantees:
+     *  - Every entry must resolve INSIDE the new project folder (blocks zip-slip "../" and absolute paths).
+     *  - The archive must contain exactly one root folder and a project.json.
+     *  - Existing projects are never overwritten: a name clash imports as "Name_2", "Name_3"…
+     *  - Extraction happens in a staging folder and is moved into place only when complete,
+     *    so a failed import never leaves a half-written project behind.
+     *  - Refuses archives that would not fit on disk.
      */
-    fun importProject(geoxFile: File, workspaceDir: File): File? {
+    fun importProject(geoxFile: File, workspaceDir: File): ImportResult {
+        if (!geoxFile.isFile) return ImportResult.Failure("File not found: ${geoxFile.name}")
+
+        val workspace = workspaceDir.canonicalFile
+        val staging = File(workspace, ".import-${UUID.randomUUID()}")
+
         return try {
-            var rootFolderName: String? = null
+            ZipFile(geoxFile).use { zip ->
+                val entries = zip.entries().toList()
+                if (entries.isEmpty()) return ImportResult.Failure("The archive is empty.")
+                if (entries.size > MAX_ENTRIES) return ImportResult.Failure("The archive contains too many files.")
 
-            FileInputStream(geoxFile).use { fis ->
-                ZipInputStream(fis).use { zis ->
-                    var entry = zis.nextEntry
-                    while (entry != null) {
-                        val newFile = File(workspaceDir, entry.name)
+                // 1. Exactly one, well-formed root folder.
+                val names = entries.map { it.name.replace('\\', '/') }
+                val roots = names.map { it.substringBefore('/') }.toSet()
+                val root = roots.singleOrNull()
+                    ?: return ImportResult.Failure("Not a valid .geox project (multiple root folders).")
+                if (!isSafeFolderName(root)) {
+                    return ImportResult.Failure("Not a valid .geox project (invalid project folder name).")
+                }
+                if ("$root/project.json" !in names) {
+                    return ImportResult.Failure("Not a valid .geox project (project.json is missing).")
+                }
 
-                        // Capture the root project folder name from the zip
-                        if (rootFolderName == null) {
-                            rootFolderName = entry.name.substringBefore("/")
-                        }
+                // 2. Disk space check (declared sizes; actual bytes are also capped while copying).
+                val declared = entries.sumOf { maxOf(it.size, 0L) }
+                val budget = workspace.usableSpace - DISK_SAFETY_MARGIN_BYTES
+                if (declared > budget) return ImportResult.Failure("Not enough free disk space to import this project.")
 
-                        if (entry.isDirectory) {
-                            newFile.mkdirs()
-                        } else {
-                            newFile.parentFile?.mkdirs()
-                            FileOutputStream(newFile).use { fos ->
-                                zis.copyTo(fos)
+                // 3. Extract into staging with a path check on every entry.
+                staging.mkdirs()
+                val stagingRoot = staging.canonicalFile
+                var written = 0L
+
+                for ((entry, name) in entries.zip(names)) {
+                    if (name.length <= root.length + 1) continue // the root folder entry itself
+                    val relative = name.substring(root.length + 1)
+
+                    val dest = File(stagingRoot, relative).canonicalFile
+                    if (!dest.path.startsWith(stagingRoot.path + File.separator)) {
+                        throw SecurityException("Blocked unsafe path in archive: $name")
+                    }
+
+                    if (entry.isDirectory) {
+                        dest.mkdirs()
+                        continue
+                    }
+                    dest.parentFile.mkdirs()
+                    zip.getInputStream(entry).use { input ->
+                        FileOutputStream(dest).use { output ->
+                            val buffer = ByteArray(COPY_BUFFER)
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                written += read
+                                if (written > budget) throw IOException("Archive expands beyond available disk space.")
+                                output.write(buffer, 0, read)
                             }
                         }
-                        zis.closeEntry()
-                        entry = zis.nextEntry
                     }
                 }
+
+                // 4. Move into place under a non-conflicting name.
+                val target = uniqueProjectDir(workspace, root)
+                if (!stagingRoot.renameTo(target)) {
+                    throw IOException("Could not move the imported project into the workspace.")
+                }
+                ImportResult.Success(target)
             }
-            // Return the newly extracted project directory
-            if (rootFolderName != null) File(workspaceDir, rootFolderName) else null
+        } catch (e: SecurityException) {
+            ImportResult.Failure("This file was rejected because it tries to write outside the project folder.")
+        } catch (e: java.util.zip.ZipException) {
+            ImportResult.Failure("The file is not a valid .geox archive.")
         } catch (e: Exception) {
             e.printStackTrace()
-            null
+            ImportResult.Failure("Import failed: ${e.message ?: e.javaClass.simpleName}")
+        } finally {
+            if (staging.exists()) staging.deleteRecursively()
         }
+    }
+
+    // --- helpers --------------------------------------------------------------------------------
+
+    private fun isExcluded(file: File): Boolean {
+        val name = file.name.lowercase()
+        return name in EXCLUDED_NAMES || EXCLUDED_SUFFIXES.any { name.endsWith(it) }
+    }
+
+    internal fun isSafeFolderName(name: String): Boolean =
+        name.isNotBlank() && name != "." && name != ".." &&
+            !name.startsWith(".") && name.none { it in "\\/:*?\"<>|" || it.code < 32 }
+
+    private fun uniqueProjectDir(workspace: File, baseName: String): File {
+        var candidate = File(workspace, baseName)
+        var n = 2
+        while (candidate.exists()) {
+            candidate = File(workspace, "${baseName}_$n")
+            n++
+        }
+        return candidate
     }
 }

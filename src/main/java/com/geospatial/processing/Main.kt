@@ -15,6 +15,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.geospatial.processing.auth.ClockGuard
 import com.geospatial.processing.auth.LicenseManager
 import com.geospatial.processing.auth.LicenseStorage
 import com.geospatial.processing.ui.LockScreen
@@ -31,6 +32,10 @@ fun main() = application {
 
     // 1. EVALUATE SECURITY STATE ON STARTUP (Preserved from original)
     val initialAuthState = remember {
+        // Record "last seen" time for everyone (licensed or trial), so winding the
+        // system clock back can't extend a license or trial.
+        ClockGuard.default.checkAndRecord()
+
         val savedLicense = LicenseStorage.getLicense()
 
         if (savedLicense != null) {
@@ -126,14 +131,10 @@ fun main() = application {
                 LockScreen(
                     showExpiredMessage = lockoutReason.contains("Subscription"),
                     onKeyEntered = { key ->
-                        if (key == "SECRET_ADMIN_DEBUG") {
+                        val status = LicenseManager.verifyLicense(key)
+                        if (status is LicenseManager.LicenseStatus.Valid) {
+                            LicenseStorage.saveLicense(key)
                             isAuthorized = true
-                        } else {
-                            val status = LicenseManager.verifyLicense(key)
-                            if (status is LicenseManager.LicenseStatus.Valid) {
-                                LicenseStorage.saveLicense(key)
-                                isAuthorized = true
-                            }
                         }
                     }
                 )
@@ -188,4 +189,4 @@ fun LicenseStatusBar() {
             fontSize = 14.sp
         )
     }
-}
+}
