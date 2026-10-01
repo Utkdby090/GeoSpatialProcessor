@@ -5,7 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -188,8 +188,8 @@ private fun LegacyImportDialog(
         Card(
             modifier = Modifier.width(480.dp),
             shape = RoundedCornerShape(8.dp),
-            backgroundColor = Color(0xFF2B2D30),
-            elevation = 24.dp
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2D30)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 24.dp)
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text("Data from a previous version found", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -222,14 +222,14 @@ private fun LegacyImportDialog(
                     OutlinedButton(
                         onClick = onNotNow,
                         enabled = !isWorking,
-                        colors = ButtonDefaults.outlinedButtonColors(backgroundColor = Color.Transparent, contentColor = Color.White),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent, contentColor = Color.White),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color.Gray)
                     ) { Text("Not now") }
                     Spacer(modifier = Modifier.width(12.dp))
                     Button(
                         onClick = onImport,
                         enabled = !isWorking,
-                        colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary, contentColor = Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color.White)
                     ) { Text("Import") }
                 }
             }

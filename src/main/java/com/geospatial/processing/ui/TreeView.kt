@@ -9,7 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Delete
@@ -54,14 +54,14 @@ fun TreeView(
         modifier = modifier
             .fillMaxSize()
             // Dynamically uses the surface color (White in Light Mode, Slate in Dark Mode)
-            .background(MaterialTheme.colors.surface)
+            .background(MaterialTheme.colorScheme.surface)
     ) {
         // --- 1. THE ENTERPRISE HEADER ---
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 // Dynamically uses the Primary color for the header
-                .background(MaterialTheme.colors.primary)
+                .background(MaterialTheme.colorScheme.primary)
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             Row(
@@ -73,7 +73,7 @@ fun TreeView(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "PROJECT TOWERS",
-                        color = MaterialTheme.colors.onPrimary,
+                        color = MaterialTheme.colorScheme.onPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
                         letterSpacing = 1.sp
@@ -82,12 +82,12 @@ fun TreeView(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colors.onPrimary.copy(alpha = 0.2f))
+                            .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f))
                             .padding(horizontal = 8.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = records.size.toString(),
-                            color = MaterialTheme.colors.onPrimary,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -121,7 +121,7 @@ fun TreeView(
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = "Export ZIP",
-                            tint = MaterialTheme.colors.onPrimary.copy(alpha = 0.7f),
+                            tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -139,7 +139,7 @@ fun TreeView(
                         Icon(
                             imageVector = Icons.Default.AddCircle,
                             contentDescription = "Import CSV",
-                            tint = MaterialTheme.colors.onPrimary,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -154,8 +154,8 @@ fun TreeView(
                     val isSelected = selectedRecord?.id == record.id
 
                     // Secondary color (Azure) handles highlights automatically
-                    val backgroundColor = if (isSelected) MaterialTheme.colors.secondary.copy(alpha = 0.08f) else Color.Transparent
-                    val indicatorColor = if (isSelected) MaterialTheme.colors.secondary else Color.Transparent
+                    val backgroundColor = if (isSelected) MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f) else Color.Transparent
+                    val indicatorColor = if (isSelected) MaterialTheme.colorScheme.secondary else Color.Transparent
 
                     Column {
                         Row(
@@ -182,7 +182,7 @@ fun TreeView(
                                 Text(
                                     text = "Tower ${record.towerNumber}",
                                     // Switches between Azure (selected) or dynamic OnSurface color
-                                    color = if (isSelected) MaterialTheme.colors.secondary else MaterialTheme.colors.onSurface,
+                                    color = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 14.sp,
                                     maxLines = 1,
@@ -193,7 +193,7 @@ fun TreeView(
                                 Text(
                                     text = if (record.lineName.isNotBlank()) record.lineName else "Circuit: ${record.circuit}",
                                     // Secondary text is just onSurface with 60% opacity
-                                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                     fontSize = 12.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -213,14 +213,14 @@ fun TreeView(
                                     Icon(
                                         imageVector = Icons.Default.Delete,
                                         contentDescription = "Delete",
-                                        tint = MaterialTheme.colors.error.copy(alpha = 0.7f),
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
                         }
                         // Divider adapts to Dark/Light mode using 12% opacity of the text color
-                        Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f), thickness = 1.dp)
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), thickness = 1.dp)
                     }
                 }
             }

@@ -4,7 +4,8 @@ import androidx.compose.ui.graphics.Color
 
 // --- Core Palette ---
 val NavyPrimary = Color(0xFF0F172A)      // Deep slate/navy for sidebars & headers
-val AzureAccent = Color(0xFF0284C7)      // Professional blue for primary actions
+val AzureAccent = Color(0xFF0EA5E9)      // Bright accent for selection & primary actions
+val AzureAccentVariant = Color(0xFF0284C7) // Deeper accent (former primaryVariant)
 val BackgroundSlate = Color(0xFFF8FAFC)  // Off-white for the main app background
 val SurfaceWhite = Color(0xFFFFFFFF)     // Pure white for data cards
 

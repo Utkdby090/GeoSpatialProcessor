@@ -4,11 +4,11 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.PointerMatcher
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.onClick
-import androidx.compose.material.Card
-import androidx.compose.material.CursorDropdownMenu
-import androidx.compose.material.DropdownMenuItem
-import androidx.compose.material.Icon
-import androidx.compose.material.Text
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -46,8 +46,8 @@ fun ProjectListItem(
                 matcher = PointerMatcher.mouse(PointerButton.Secondary),
                 onClick = { isContextMenuVisible = true }
             ),
-        backgroundColor = Color(0xFF2A2A2E), // Match your dark theme
-        elevation = 2.dp
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2A2A2E)), // Match your dark theme
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -67,29 +67,20 @@ fun ProjectListItem(
                 DropdownMenuItem(onClick = {
                     isContextMenuVisible = false
                     onOpen()
-                }) {
-                    Icon(Icons.Default.FolderOpen, contentDescription = "Open", modifier = Modifier.padding(end = 8.dp))
-                    Text("Open Project")
-                }
+                }, leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = "Open") }, text = { Text("Open Project") })
 
                 DropdownMenuItem(onClick = {
                     isContextMenuVisible = false
                     onEdit()
-                }) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.padding(end = 8.dp))
-                    Text("Modify Details")
-                }
+                }, leadingIcon = { Icon(Icons.Default.Edit, contentDescription = "Edit") }, text = { Text("Modify Details") })
 
                 // Optional: Add a visual separator
-                // Divider()
+                // HorizontalDivider()
 
                 DropdownMenuItem(onClick = {
                     isContextMenuVisible = false
                     onDelete()
-                }) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red, modifier = Modifier.padding(end = 8.dp))
-                    Text("Delete Project", color = Color.Red)
-                }
+                }, leadingIcon = { Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red) }, text = { Text("Delete Project", color = Color.Red) })
             }
         }
     }

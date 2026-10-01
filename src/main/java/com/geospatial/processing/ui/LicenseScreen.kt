@@ -2,7 +2,7 @@ package com.geospatial.processing.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,7 +25,7 @@ fun LicenseScreen(onLicenseValid: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Software Locked", style = MaterialTheme.typography.h4)
+        Text("Software Locked", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(16.dp))
 
         Text("To unlock this software, please provide your Machine ID to the administrator to receive a 30-day license key.")
@@ -35,8 +35,8 @@ fun LicenseScreen(onLicenseValid: () -> Unit) {
         SelectionContainer {
             Text(
                 text = "Your Machine ID: $machineId",
-                style = MaterialTheme.typography.h6,
-                color = MaterialTheme.colors.primary
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.primary
             )
         }
 
