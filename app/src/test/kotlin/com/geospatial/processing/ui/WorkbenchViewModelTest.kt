@@ -1,10 +1,13 @@
 package com.geospatial.processing.ui
 
+import com.geospatial.processing.core.plugin.telecom.TelecomKeys as K
+import com.geospatial.processing.core.plugin.telecom.TelecomPlugin
 import com.geospatial.processing.data.database.ProjectSession
-import com.geospatial.processing.data.repository.GeoRepository
+import com.geospatial.processing.data.images.ImageStore
+import com.geospatial.processing.data.repository.AssetRepository
+import com.geospatial.processing.domain.model.AssetImage
+import com.geospatial.processing.domain.model.AssetImageResolver
 import com.geospatial.processing.domain.model.RecordStatus
-import com.geospatial.processing.domain.usecase.CsvImportService
-import com.geospatial.processing.domain.usecase.PdfGenerationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
@@ -13,9 +16,11 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import java.io.File
 import java.nio.file.Files
+import java.util.zip.ZipFile
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
@@ -25,17 +30,23 @@ import kotlin.test.assertTrue
 class WorkbenchViewModelTest {
 
     private val root: File = Files.createTempDirectory("workbench-test").toFile()
+    private val projectDir = File(root, "project").apply { mkdirs() }
+    private val imageRoot = File(root, "tower-images").apply { mkdirs() }
     private lateinit var session: ProjectSession
-    private lateinit var repository: GeoRepository
+    private lateinit var repository: AssetRepository
     private lateinit var vm: WorkbenchViewModel
+
+    private val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1)
 
     @BeforeTest
     fun setUp() = runBlocking {
         Dispatchers.setMain(UnconfinedTestDispatcher())
-        session = ProjectSession.open(File(root, "project").apply { mkdirs() })
-        repository = GeoRepository(session.database)
+        session = ProjectSession.open(projectDir)
+        repository = AssetRepository(session.database)
+        val plugin = TelecomPlugin()
         vm = WorkbenchViewModel(
-            repository, CsvImportService(repository), PdfGenerationService(repository),
+            plugin, repository, ImageStore(projectDir), AssetImageResolver(plugin, projectDir),
+            initialRootImageDirectory = imageRoot.path,
             exportResultDisplayMillis = 0,
         )
         vm.initialLoad.join()
@@ -49,15 +60,18 @@ class WorkbenchViewModelTest {
     }
 
     private fun csv(vararg towers: String): File = File(root, "towers.csv").apply {
-        writeText(
-            "Tower No.,Line Name,CKT,Lat.,Long.\n" +
-                towers.joinToString("\n") { "$it,Line A,1,12.5,77.5" }
-        )
+        writeText("Tower No.,Line Name,CKT,Lat.,Long.\n" + towers.joinToString("\n") { "$it,Line A,1,12.5,77.5" })
     }
 
-    private fun importTowers(vararg towers: String) = runBlocking {
-        vm.importCsv(csv(*towers)).join()
+    private fun importTowers(vararg towers: String) = runBlocking { vm.importCsv(csv(*towers)).join() }
+
+    /** A tower folder with all four report images, so the tower becomes READY. */
+    private fun completeImageFolder(tower: String) = File(imageRoot, tower).apply {
+        mkdirs()
+        listOf("thermal.jpg", "zoom.jpg", "tower.jpg", "overview.jpg").forEach { File(this, it).writeBytes(jpeg) }
     }
+
+    private fun towers() = vm.state.value.records.map { it.property(K.TOWER_NUMBER) }
 
     @Test
     fun `starts empty`() {
@@ -66,83 +80,110 @@ class WorkbenchViewModelTest {
     }
 
     @Test
-    fun `importing a CSV loads records and shows the success dialog`() {
+    fun `importing a CSV loads assets in order and marks complete towers READY`() {
+        completeImageFolder("VMT-2")
         importTowers("VMT-1", "VMT-2")
 
         val state = vm.state.value
-        assertEquals(listOf("VMT-1", "VMT-2"), state.records.map { it.towerNumber })
+        assertEquals(listOf("VMT-1", "VMT-2"), towers())
+        assertEquals(listOf(RecordStatus.DRAFT, RecordStatus.READY), state.records.map { it.status })
         assertNull(state.importProgress, "progress overlay should close when the import finishes")
         assertTrue(state.showImportSuccess)
-        // No tower image folders exist, so nothing can be READY.
-        assertTrue(state.records.all { it.status == RecordStatus.DRAFT })
 
         vm.onAction(WorkbenchAction.DismissImportSuccess)
         assertFalse(vm.state.value.showImportSuccess)
     }
 
     @Test
-    fun `previous and next tower follow the sort order`() {
+    fun `a second import is appended after the first`() {
+        importTowers("VMT-1")
+        importTowers("VMT-2", "VMT-3")
+        assertEquals(listOf("VMT-1", "VMT-2", "VMT-3"), towers())
+    }
+
+    @Test
+    fun `previous and next follow the sort order`() {
         importTowers("VMT-1", "VMT-2", "VMT-3")
         val middle = vm.state.value.records[1]
 
         vm.onAction(WorkbenchAction.Select(middle))
-        assertEquals("VMT-1", vm.state.value.previousTowerName)
-        assertEquals("VMT-3", vm.state.value.nextTowerName)
+        assertEquals("VMT-1", vm.state.value.previousRecord?.property(K.TOWER_NUMBER))
+        assertEquals("VMT-3", vm.state.value.nextRecord?.property(K.TOWER_NUMBER))
 
         vm.onAction(WorkbenchAction.ToggleSort)
-        assertEquals("VMT-3", vm.state.value.previousTowerName)
-        assertEquals("VMT-1", vm.state.value.nextTowerName)
+        assertEquals("VMT-3", vm.state.value.previousRecord?.property(K.TOWER_NUMBER))
         assertEquals(middle.id, vm.state.value.selectedRecord?.id)
     }
 
     @Test
-    fun `deleting the selected record clears the selection`() = runBlocking {
+    fun `deleting the selected asset clears the selection and its images`() = runBlocking {
         importTowers("VMT-1", "VMT-2")
         val first = vm.state.value.records.first()
+        vm.save(first, mapOf(K.SLOT_THERMAL to ImageEdit.Replace(jpeg))).join()
         vm.onAction(WorkbenchAction.Select(first))
 
         vm.delete(first).join()
 
-        assertEquals(listOf("VMT-2"), vm.state.value.records.map { it.towerNumber })
+        assertEquals(listOf("VMT-2"), towers())
         assertNull(vm.state.value.selectedRecordId)
+        assertFalse(File(projectDir, "images/${first.id}").exists())
     }
 
     @Test
-    fun `deleting another record keeps the selection`() = runBlocking {
+    fun `clear all removes every asset, image and the selection`() = runBlocking {
         importTowers("VMT-1", "VMT-2")
-        val (first, second) = vm.state.value.records
+        val first = vm.state.value.records.first()
+        vm.save(first, mapOf(K.SLOT_THERMAL to ImageEdit.Replace(jpeg))).join()
         vm.onAction(WorkbenchAction.Select(first))
-
-        vm.delete(second).join()
-
-        assertEquals(first.id, vm.state.value.selectedRecordId)
-    }
-
-    @Test
-    fun `clear all removes every record and the selection`() = runBlocking {
-        importTowers("VMT-1", "VMT-2")
-        vm.onAction(WorkbenchAction.Select(vm.state.value.records.first()))
 
         vm.clearAll().join()
 
         assertEquals(emptyList(), vm.state.value.records)
         assertNull(vm.state.value.selectedRecordId)
-        assertEquals(emptyList(), repository.getAllRecords())
+        assertTrue(File(projectDir, "images").list().isNullOrEmpty())
     }
 
     @Test
-    fun `saving a record persists it and refreshes the list`() = runBlocking {
+    fun `saving writes uploaded images into the project and removes cleared ones`() = runBlocking {
         importTowers("VMT-1")
-        val record = vm.state.value.records.single()
+        val asset = vm.state.value.records.single()
 
-        vm.save(record.copy(faultDescription = "Hot joint")).join()
+        vm.save(
+            asset.copy(properties = asset.properties + (K.FAULT_DESCRIPTION to "Hot joint")),
+            mapOf(K.SLOT_THERMAL to ImageEdit.Replace(jpeg)),
+        ).join()
 
-        assertEquals("Hot joint", vm.state.value.records.single().faultDescription)
-        assertEquals("Hot joint", repository.getAllRecords().single().faultDescription)
+        val saved = repository.getAll().single()
+        assertEquals("Hot joint", saved.property(K.FAULT_DESCRIPTION))
+        val path = saved.images.getValue(K.SLOT_THERMAL).relativePath!!
+        assertContentEquals(jpeg, File(projectDir, path).readBytes())
+
+        vm.save(saved, mapOf(K.SLOT_THERMAL to ImageEdit.Clear)).join()
+
+        assertEquals(AssetImage.Cleared, repository.getAll().single().images[K.SLOT_THERMAL])
+        assertFalse(File(projectDir, path).exists(), "the replaced file is removed")
     }
 
     @Test
-    fun `export with nothing ready closes the overlay and writes no zip`() = runBlocking {
+    fun `export writes one PDF per READY tower`() = runBlocking {
+        completeImageFolder("VMT-1")
+        completeImageFolder("VMT-3")
+        importTowers("VMT-1", "VMT-2", "VMT-3")
+        val zip = File(root, "out.zip")
+
+        vm.exportZip(zip).join()
+
+        assertNull(vm.state.value.exportProgress)
+        ZipFile(zip).use { z ->
+            assertEquals(
+                listOf("Tower_Reports/NORMAL_Tower_VMT-1_Report.pdf", "Tower_Reports/NORMAL_Tower_VMT-3_Report.pdf"),
+                z.entries().toList().map { it.name }
+            )
+        }
+    }
+
+    @Test
+    fun `export with nothing ready writes no zip`() = runBlocking {
         importTowers("VMT-1")
         val zip = File(root, "out.zip")
 
