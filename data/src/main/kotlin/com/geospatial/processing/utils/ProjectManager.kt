@@ -1,6 +1,6 @@
 package com.geospatial.processing.utils
 
-import com.geospatial.processing.data.database.DatabaseConnectionManager
+import com.geospatial.processing.data.database.ProjectSession
 import com.geospatial.processing.domain.model.ProjectConfig
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -39,8 +39,9 @@ object ProjectManager {
         val configFile = File(projectDir, "project.json")
         configFile.writeText(jsonFormatter.encodeToString(config))
 
-        // 4. Initialize the localized SQLite database
-        DatabaseConnectionManager.connectToProject(projectDir)
+        // 4. Create project.db with its tables. The project is NOT left open: whoever wants to
+        //    work with it opens its own ProjectSession.
+        ProjectSession.open(projectDir).close()
 
         return projectDir
     }

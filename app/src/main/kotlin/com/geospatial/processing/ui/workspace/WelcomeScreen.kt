@@ -26,7 +26,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.geospatial.processing.utils.FileUtils
-import com.geospatial.processing.utils.ProjectArchiver
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -95,23 +94,20 @@ fun WorkspaceLauncherUI(onWorkspaceSelected: (File) -> Unit) {
 // --- STATE 2: THE INTELLIJ-STYLE DASHBOARD ---
 @Composable
 fun ProjectDashboardUI(
-    workspaceDir: File,
+    state: DashboardUiState,
     onOpenProject: (File) -> Unit,
-    onCreateNewProject: () -> Unit
+    onCreateNewProject: () -> Unit,
+    onImportGeox: (File) -> Unit,
+    onExportProject: (project: File, destination: File) -> Unit,
+    onRenameProject: (project: File, newName: String) -> Unit,
+    onDeleteProject: (project: File, moveToTrash: Boolean) -> Unit,
+    onDismissNotice: () -> Unit
 ) {
-    // State for modals
+    // Which project a modal is open for (UI-only state)
     var projectToModify by remember { mutableStateOf<File?>(null) }
     var projectToDelete by remember { mutableStateOf<File?>(null) }
-    var refreshTrigger by remember { mutableStateOf(0) }
 
-    // Result/error notice for import & export (title to message)
-    var notice by remember { mutableStateOf<Pair<String, String>?>(null) }
-
-    val projects = remember(workspaceDir, refreshTrigger) {
-        // THE LOGIC UPDATE: Ignore anything starting with a dot to hide "Soft Deleted" folders
-        workspaceDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }
-            ?.sortedByDescending { it.lastModified() } ?: emptyList()
-    }
+    val projects = state.projects
 
     val sdf = SimpleDateFormat("MMM dd, yyyy - HH:mm", Locale.getDefault())
 
@@ -149,14 +145,7 @@ fun ProjectDashboardUI(
                             onClick = {
                                 val chooser = javax.swing.JFileChooser().apply { dialogTitle = "Import .geox Project" }
                                 if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
-                                    when (val result = ProjectArchiver.importProject(chooser.selectedFile, workspaceDir)) {
-                                        is ProjectArchiver.ImportResult.Success -> {
-                                            refreshTrigger++
-                                            onOpenProject(result.projectDir)
-                                        }
-                                        is ProjectArchiver.ImportResult.Failure ->
-                                            notice = "Import failed" to result.reason
-                                    }
+                                    onImportGeox(chooser.selectedFile)
                                 }
                             },
                             colors = ButtonDefaults.outlinedButtonColors(
@@ -208,18 +197,15 @@ fun ProjectDashboardUI(
                     }
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(projects) { projectFile ->
+                        items(projects, key = { it.path }) { project ->
                             ProjectRowWithContextMenu(
-                                projectFile = projectFile,
+                                projectFile = project.dir,
+                                lastModified = project.lastModified,
                                 sdf = sdf,
                                 onOpenProject = onOpenProject,
                                 onEditProject = { file -> projectToModify = file },
                                 onDeleteProject = { file -> projectToDelete = file },
-                                onExportFinished = { success, destination ->
-                                    notice = if (success) "Export complete" to "Project saved to:\n${destination.absolutePath}"
-                                             else "Export failed" to "The project could not be exported to ${destination.absolutePath}. " +
-                                                 "Check that the location is writable and has enough free space."
-                                }
+                                onExport = onExportProject
                             )
                         }
                     }
@@ -234,37 +220,14 @@ fun ProjectDashboardUI(
                 projectName = projectToDelete!!.name,
                 onDismiss = { projectToDelete = null },
                 onConfirm = { moveToTrash ->
-
-                    val targetFile = projectToDelete!!
-
-                    try {
-                        if (moveToTrash) {
-                            // SAFE LOGIC 1: Move to OS Trash bin
-                            if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.MOVE_TO_TRASH)) {
-                                java.awt.Desktop.getDesktop().moveToTrash(targetFile)
-                            } else {
-                                // Fallback if OS blocks trash api
-                                println("Trash not supported. Falling back to soft delete.")
-                                val hiddenFile = java.io.File(targetFile.parentFile, ".deleted_${targetFile.name}")
-                                targetFile.renameTo(hiddenFile)
-                            }
-                        } else {
-                            // SAFE LOGIC 2: Soft delete (Rename)
-                            val hiddenFile = java.io.File(targetFile.parentFile, ".deleted_${targetFile.name}")
-                            targetFile.renameTo(hiddenFile)
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
+                    onDeleteProject(projectToDelete!!, moveToTrash)
                     projectToDelete = null
-                    refreshTrigger++
                 }
             )
         }
 
-        notice?.let { (title, message) ->
-            NoticeDialog(title = title, message = message, onDismiss = { notice = null })
+        state.notice?.let { notice ->
+            NoticeDialog(title = notice.title, message = notice.message, onDismiss = onDismissNotice)
         }
 
         if (projectToModify != null) {
@@ -272,14 +235,8 @@ fun ProjectDashboardUI(
                 projectFile = projectToModify!!,
                 onDismiss = { projectToModify = null },
                 onSave = { newName ->
-                    val oldFile = projectToModify!!
-                    val newFile = File(oldFile.parentFile, newName)
-
-                    if (oldFile.name != newName && !newFile.exists()) {
-                        oldFile.renameTo(newFile)
-                    }
+                    onRenameProject(projectToModify!!, newName)
                     projectToModify = null
-                    refreshTrigger++
                 }
             )
         }
@@ -316,11 +273,12 @@ private fun NavRailItem(
 @Composable
 private fun ProjectRowWithContextMenu(
     projectFile: File,
+    lastModified: Long,
     sdf: SimpleDateFormat,
     onOpenProject: (File) -> Unit,
     onEditProject: (File) -> Unit,
     onDeleteProject: (File) -> Unit,
-    onExportFinished: (success: Boolean, destination: File) -> Unit
+    onExport: (project: File, destination: File) -> Unit
 ) {
     var isContextMenuVisible by remember { mutableStateOf(false) }
 
@@ -365,19 +323,15 @@ private fun ProjectRowWithContextMenu(
                     selectedFile = File("${projectFile.name}.geox")
                 }
                 if (chooser.showSaveDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
-                    // Always save with the .geox extension, even if the user didn't type it.
-                    val chosen = chooser.selectedFile
-                    val destination = if (chosen.extension.equals("geox", ignoreCase = true)) chosen
-                                      else File(chosen.parentFile, chosen.name + ".geox")
-                    val ok = ProjectArchiver.exportProject(projectFile, destination)
-                    onExportFinished(ok, destination)
+                    // The ViewModel adds the .geox extension if the user didn't type it.
+                    onExport(projectFile, chooser.selectedFile)
                 }
             }) {
                 Icon(Icons.Default.Share, contentDescription = "Export Project", tint = Color.Gray)
             }
 
             Spacer(modifier = Modifier.width(16.dp))
-            Text(sdf.format(Date(projectFile.lastModified())), color = Color.Gray, fontSize = 12.sp)
+            Text(sdf.format(Date(lastModified)), color = Color.Gray, fontSize = 12.sp)
         }
 
         CursorDropdownMenu(
