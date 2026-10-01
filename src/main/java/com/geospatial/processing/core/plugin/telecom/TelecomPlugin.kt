@@ -5,7 +5,7 @@ import java.io.File
 
 class TelecomPlugin : DomainPlugin {
     override val pluginId = "com.geo.telecom"
-    override val displayName = "Telecom Grid Inspection"
+    override val displayName = "Electric Grid Inspection"
     override val description = "Process 765kV transmission lines, mid-spans, and hardware fittings."
     override val iconName = "settings" // We'll map this to a native Compose icon in the UI
 

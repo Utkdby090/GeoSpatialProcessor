@@ -37,7 +37,7 @@ fun FrameWindowScope.CustomTitleBar(
         ) {
             // App Icon and Title
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp)) {
-                Text("GeoSpatial V2", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("GeoFlux", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
 
             // Window Controls (Minimize, Maximize, Close)

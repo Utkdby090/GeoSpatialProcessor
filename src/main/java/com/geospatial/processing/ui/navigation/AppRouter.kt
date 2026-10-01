@@ -19,6 +19,13 @@ import com.geospatial.processing.ui.workspace.WorkspaceLauncherUI
 import com.geospatial.processing.utils.ProjectManager
 import java.io.File
 
+// --- NEW EXPOSED IMPORTS REQUIRED FOR ISOLATION ---
+import org.jetbrains.exposed.sql.Database
+import org.jetbrains.exposed.sql.SchemaUtils
+import org.jetbrains.exposed.sql.transactions.transaction
+import com.geospatial.processing.data.table.GeoDataTable
+import com.geospatial.processing.data.table.AuditLogs
+
 sealed class AppState {
     object WorkspaceSelection : AppState()
     data class ProjectDashboard(val workspaceDir: File) : AppState()
@@ -31,7 +38,6 @@ fun FrameWindowScope.AppRouter(
     onCloseApp: () -> Unit
 ) {
     var currentAppState by remember { mutableStateOf<AppState>(com.geospatial.processing.utils.WorkspacePrefs.getLastWorkspace()?.let { savedDir ->
-        // If found, immediately boot into the Dashboard!
         DatabaseConnectionManager.connectToWorkspace(savedDir)
         AppState.ProjectDashboard(savedDir)
     } ?: AppState.WorkspaceSelection) }
@@ -52,7 +58,6 @@ fun FrameWindowScope.AppRouter(
         is AppState.ProjectDashboard -> {
             var showNewProjectWizard by remember { mutableStateOf(false) }
 
-            // 1. Initialize our installed plugins (Later this will use ServiceLoader)
             val installedPlugins = remember { listOf(com.geospatial.processing.core.plugin.telecom.TelecomPlugin()) }
 
             Box(modifier = Modifier.fillMaxSize()) {
@@ -61,6 +66,7 @@ fun FrameWindowScope.AppRouter(
                     onOpenProject = { projectDir ->
                         val config = ProjectManager.readProjectConfig(projectDir)
                         if (config != null) {
+                            // Note: Kept your existing manager call if it sets up folders/globals
                             DatabaseConnectionManager.connectToProject(projectDir)
                             currentAppState = AppState.ActiveWorkbench(state.workspaceDir, projectDir)
                         } else {
@@ -75,7 +81,6 @@ fun FrameWindowScope.AppRouter(
                         modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        // 2. Use the REAL Wizard and pass our Dummy Plugin
                         com.geospatial.processing.ui.workspace.NewProjectWizard(
                             availablePlugins = installedPlugins,
                             onProjectCreated = { selectedPluginId, projectName ->
@@ -96,24 +101,46 @@ fun FrameWindowScope.AppRouter(
                 }
             }
         }
-        
-        is AppState.ActiveWorkbench -> {
-            val repository = remember { GeoRepository() }
 
-            MainScreen(
-                repository = repository,
-                windowState = windowState,
-                onCloseApp = onCloseApp,
-                onCloseProject = {
-                    DatabaseConnectionManager.connectToWorkspace(state.workspaceDir)
-                    currentAppState = AppState.ProjectDashboard(state.workspaceDir)
+        is AppState.ActiveWorkbench -> {
+            // THE FIX: The key block strictly binds this entire screen's identity to the project path.
+            key(state.projectDir.absolutePath) {
+
+                // 1. Initialize the ISOLATED database strictly inside the key block
+                val repository = remember {
+                    val dbFile = File(state.projectDir, "local_geodata.db")
+
+                    // Create an isolated connection just for this project
+                    val isolatedDatabase = Database.connect(
+                        url = "jdbc:sqlite:${dbFile.absolutePath}",
+                        driver = "org.sqlite.JDBC"
+                    )
+
+                    // Force schema generation to prevent the "no such table" crash
+                    transaction(isolatedDatabase) {
+                        SchemaUtils.create(GeoDataTable, AuditLogs)
+                    }
+
+                    // Inject the isolated database into our updated GeoRepository
+                    GeoRepository(isolatedDatabase)
                 }
-            )
+
+                // 2. Render the IDE screen with a perfectly clean slate
+                MainScreen(
+                    repository = repository,
+                    windowState = windowState,
+                    onCloseApp = onCloseApp,
+                    onCloseProject = {
+                        DatabaseConnectionManager.connectToWorkspace(state.workspaceDir)
+                        currentAppState = AppState.ProjectDashboard(state.workspaceDir)
+                    }
+                )
+            }
         }
     }
 }
 
-// --- PLACEHOLDER WIZARD (So the code compiles until we merge branches) ---
+// --- PLACEHOLDER WIZARD ---
 @Composable
 private fun MockNewProjectWizard(
     onProjectCreated: (pluginId: String, projectName: String) -> Unit,
@@ -145,7 +172,6 @@ private fun MockNewProjectWizard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
                     enabled = projectName.isNotBlank(),
-                    // Hardcoding "com.geo.telecom" plugin for now so we can test the creation flow
                     onClick = { onProjectCreated("com.geo.telecom", projectName) }
                 ) {
                     Text("Create")

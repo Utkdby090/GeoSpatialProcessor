@@ -13,6 +13,7 @@ import androidx.compose.foundation.onClick
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -100,9 +101,9 @@ fun ProjectDashboardUI(
     var projectToDelete by remember { mutableStateOf<File?>(null) }
     var refreshTrigger by remember { mutableStateOf(0) }
 
-    // THE FIX: Added refreshTrigger here so the list reloads when a file is deleted/renamed
     val projects = remember(workspaceDir, refreshTrigger) {
-        workspaceDir.listFiles()?.filter { it.isDirectory && it.name != ".metadata" }
+        // THE LOGIC UPDATE: Ignore anything starting with a dot to hide "Soft Deleted" folders
+        workspaceDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }
             ?.sortedByDescending { it.lastModified() } ?: emptyList()
     }
 
@@ -150,12 +151,12 @@ fun ProjectDashboardUI(
                                 }
                             },
                             colors = ButtonDefaults.outlinedButtonColors(
-                                backgroundColor = androidx.compose.ui.graphics.Color.Transparent,
-                                contentColor = androidx.compose.ui.graphics.Color.White
+                                backgroundColor = Color.Transparent,
+                                contentColor = Color.White
                             ),
-                            border = androidx.compose.foundation.BorderStroke(
+                            border = BorderStroke(
                                 1.dp,
-                                androidx.compose.ui.graphics.Color.Gray
+                                Color.Gray
                             )
                         ) {
                             Text("Import .geox")
@@ -203,7 +204,6 @@ fun ProjectDashboardUI(
                                 projectFile = projectFile,
                                 sdf = sdf,
                                 onOpenProject = onOpenProject,
-                                // THE FIX: Wire the clicks to update the local state variables
                                 onEditProject = { file -> projectToModify = file },
                                 onDeleteProject = { file -> projectToDelete = file }
                             )
@@ -213,16 +213,38 @@ fun ProjectDashboardUI(
             }
         }
 
-        // --- THE FIX: RENDER THE OVERLAYS ON TOP OF THE UI ---
+        // --- OVERLAYS ---
 
         if (projectToDelete != null) {
             DeleteProjectDialog(
                 projectName = projectToDelete!!.name,
                 onDismiss = { projectToDelete = null },
-                onConfirm = {
-                    projectToDelete?.deleteRecursively()
+                onConfirm = { moveToTrash ->
+
+                    val targetFile = projectToDelete!!
+
+                    try {
+                        if (moveToTrash) {
+                            // SAFE LOGIC 1: Move to OS Trash bin
+                            if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.MOVE_TO_TRASH)) {
+                                java.awt.Desktop.getDesktop().moveToTrash(targetFile)
+                            } else {
+                                // Fallback if OS blocks trash api
+                                println("Trash not supported. Falling back to soft delete.")
+                                val hiddenFile = File(targetFile.parentFile, ".deleted_${targetFile.name}")
+                                targetFile.renameTo(hiddenFile)
+                            }
+                        } else {
+                            // SAFE LOGIC 2: Soft delete (Rename)
+                            val hiddenFile =File(targetFile.parentFile, ".deleted_${targetFile.name}")
+                            targetFile.renameTo(hiddenFile)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
                     projectToDelete = null
-                    refreshTrigger++ // Forces the UI to reload the folder list
+                    refreshTrigger++
                 }
             )
         }
@@ -239,14 +261,14 @@ fun ProjectDashboardUI(
                         oldFile.renameTo(newFile)
                     }
                     projectToModify = null
-                    refreshTrigger++ // Forces the UI to reload the folder list
+                    refreshTrigger++
                 }
             )
         }
     }
 }
 
-// ... NavRailItem and ProjectRowWithContextMenu remain exactly the same ...
+
 @Composable
 private fun NavRailItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -301,7 +323,7 @@ private fun ProjectRowWithContextMenu(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                Icons.Default.List,
+                Icons.AutoMirrored.Filled.List,
                 contentDescription = null,
                 tint = MaterialTheme.colors.primary,
                 modifier = Modifier.size(32.dp)
@@ -465,12 +487,15 @@ fun ModifyProjectDialog(
     }
 }
 
+// THE LOGIC UPDATE: Now passes a boolean for safe deletion handling
 @Composable
 fun DeleteProjectDialog(
     projectName: String,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit
+    onConfirm: (Boolean) -> Unit
 ) {
+    var moveToTrash by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -479,15 +504,42 @@ fun DeleteProjectDialog(
         contentAlignment = Alignment.Center
     ) {
         Card(
-            modifier = Modifier.width(400.dp),
+            modifier = Modifier.width(450.dp),
             shape = RoundedCornerShape(8.dp),
-            backgroundColor = Color(0xFF2B2D30), // Dark theme to match workspace
+            backgroundColor = Color(0xFF2B2D30),
             elevation = 24.dp
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
-                Text("Delete Project", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Remove Project", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Spacer(modifier = Modifier.height(12.dp))
-                Text("Are you sure you want to delete '$projectName'?\nThis will permanently erase all data and cannot be undone.", color = Color.Gray, fontSize = 14.sp)
+
+                Text(
+                    text = "Are you sure you want to remove '$projectName' from the workspace?",
+                    color = Color.LightGray,
+                    fontSize = 14.sp
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { moveToTrash = !moveToTrash }
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = moveToTrash,
+                        onCheckedChange = { moveToTrash = it },
+                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFFD32F2F))
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text("Move to Recycle Bin", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("If unchecked, the project is only hidden from this list.", color = Color.Gray, fontSize = 12.sp)
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -507,13 +559,13 @@ fun DeleteProjectDialog(
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Button(
-                        onClick = onConfirm,
+                        onClick = { onConfirm(moveToTrash) },
                         colors = ButtonDefaults.buttonColors(
-                            backgroundColor = Color(0xFFD32F2F), // Warning Red
+                            backgroundColor = if (moveToTrash) Color(0xFFD32F2F) else MaterialTheme.colors.primary,
                             contentColor = Color.White
                         )
                     ) {
-                        Text("Delete")
+                        Text(if (moveToTrash) "Delete to Trash" else "Remove from List")
                     }
                 }
             }
