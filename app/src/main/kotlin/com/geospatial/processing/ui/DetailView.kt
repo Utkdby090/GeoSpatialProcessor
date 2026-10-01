@@ -18,7 +18,9 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.geospatial.processing.core.plugin.DomainPlugin
 import com.geospatial.processing.domain.model.*
+import com.geospatial.processing.ui.components.PropertyGroupForm
 import com.geospatial.processing.util.ImageUtils
 import java.io.File
 import javax.swing.JFileChooser
@@ -26,121 +28,77 @@ import javax.swing.JFrame
 import javax.swing.filechooser.FileNameExtensionFilter
 import org.jetbrains.skia.Image as SkiaImage
 
+/**
+ * Edit form for one asset, built from the plugin's schema:
+ * first field group, report classification, images (two per row, sequence navigator before the
+ * second row when the plugin asks for it), then the remaining field groups.
+ */
 @Composable
 fun DetailView(
-    record: GeoRecord,
+    record: Asset,
+    plugin: DomainPlugin,
+    imageResolver: AssetImageResolver,
     rootDir: String,
     prevItemName: String?,
     nextItemName: String?,
-    onSave: (GeoRecord) -> Unit
+    onSave: (Asset, Map<String, ImageEdit>) -> Unit
 ) {
-    // --- 1. DETERMINE LABELS EARLY SO THEY ARE IN SCOPE EVERYWHERE ---
-    val type = record.reportType.lowercase()
-    val isMidSpan = type.contains("mid")
-    val isSleeve = type.contains("sleeve")
-    val isEarthWire = type.contains("earth")
+    val schema = remember(record) { plugin.getPropertySchema(record) }
+    val groups = remember(schema) { schema.groupBy { it.group }.toList() }
+    val presentation = remember(record) { plugin.present(record) }
+    val slots = remember(record) { plugin.imageSlots(record) }
 
-    val lblLocation = "Location"
-    val lblThermal = if (isMidSpan) "THERMAL Image" else "Thermal Image"
-    val lblTowerSpan = when {
-        isMidSpan -> "SPAN Image"
-        isSleeve -> "SLEEVE Image"
-        isEarthWire -> "EARTH WIRE Image"
-        else -> "Tower Image"
-    }
-    val lblRgb = "RGB Image"
+    // --- FORM STATE ---
+    val values = remember(record) { mutableStateMapOf<String, String>().apply { putAll(AssetForm.values(record, schema)) } }
+    var errors by remember(record) { mutableStateOf(emptySet<String>()) }
 
-    // --- 2. FORM DATA STATE ---
-    var lineName by remember(record) { mutableStateOf(record.lineName) }
-    var towerNumber by remember(record) { mutableStateOf(record.towerNumber) }
-    var circuit by remember(record) { mutableStateOf(record.circuit) }
-    var lat by remember(record) { mutableStateOf(record.latitude.toString()) }
-    var long by remember(record) { mutableStateOf(record.longitude.toString()) }
-
-    // Location Extenders & Time
-    var phase by remember(record) { mutableStateOf(record.phase ?: "") }
-    var side by remember(record) { mutableStateOf(record.side ?: "") }
-    var direction by remember(record) { mutableStateOf(record.direction ?: "") }
-    var capturedDate by remember(record) { mutableStateOf(record.capturedDate ?: "") }
-    var capturedTime by remember(record) { mutableStateOf(record.capturedTime ?: "") }
-
-    var humidity by remember(record) { mutableStateOf(record.humidity) }
-    var emissivity by remember(record) { mutableStateOf(record.emissivity) }
-    var ambientTemp by remember(record) { mutableStateOf(record.ambientTemp) }
-
-    // Dynamic Circuit State
-    val dynamicCircuitsState = remember(record) {
-        mutableStateMapOf<String, String>().apply { putAll(record.dynamicCircuits) }
-    }
-
-    // Fault Analysis
-    var faultDesc by remember(record) { mutableStateOf(record.faultDescription) }
-    var faultTemp by remember(record) { mutableStateOf(record.faultTemp) }
-    var riseTemp by remember(record) { mutableStateOf(record.riseTemp ?: "") }
-
-    // --- 3. MANUAL OVERRIDE STATE ---
-    var imgThermal by remember(record) { mutableStateOf(record.thermalImage) }
-    var imgVisual by remember(record) { mutableStateOf(record.visualImage) }
-    var imgTower by remember(record) { mutableStateOf(record.towerImage) }
-    var imgExtra by remember(record) { mutableStateOf(record.extraImage) }
+    // Image changes made in the form; applied by the ViewModel on save.
+    val imageEdits = remember(record) { mutableStateMapOf<String, ImageEdit>() }
 
     // --- PRO EDITOR SELECTION TARGETS ---
     var imageFileToEdit by remember { mutableStateOf<File?>(null) }
-    var editingSlotLabel by remember { mutableStateOf<String>("") }
+    var editingSlotId by remember { mutableStateOf("") }
 
-    // Resolved Image State
-    val resolvedThermal = remember(record, imgThermal, rootDir) { record.copy(thermalImage = imgThermal).resolveThermalImage(rootDir) }
-    val resolvedVisual = remember(record, imgVisual, rootDir) { record.copy(visualImage = imgVisual).resolveVisualImage(rootDir) }
-    val resolvedTower = remember(record, imgTower, rootDir) { record.copy(towerImage = imgTower).resolveTowerImage(rootDir) }
-    val resolvedExtra = remember(record, imgExtra, rootDir) { record.copy(extraImage = imgExtra).resolveExtraImage(rootDir) }
+    // Saved/folder images, overlaid with unsaved edits for preview.
+    val savedImages = remember(record, rootDir) { imageResolver.resolve(record, rootDir) }
+    fun previewOf(slotId: String): ImageSource = when (val edit = imageEdits[slotId]) {
+        is ImageEdit.Replace -> ImageSource.FromBlob(edit.bytes)
+        ImageEdit.Clear -> ImageSource.Missing
+        null -> savedImages[slotId] ?: ImageSource.Missing
+    }
+    fun setImage(slotId: String, bytes: ByteArray?) {
+        imageEdits[slotId] = if (bytes == null || bytes.isEmpty()) ImageEdit.Clear else ImageEdit.Replace(bytes)
+    }
 
-    // Validation State
-    var lineNameError by remember { mutableStateOf(false) }
-    var towerNumError by remember { mutableStateOf(false) }
-    var latError by remember { mutableStateOf(false) }
-    var longError by remember { mutableStateOf(false) }
-
-    // --- 4. SAVE LOGIC ---
+    // --- SAVE LOGIC ---
     fun validateAndSave() {
-        lineNameError = lineName.isBlank()
-        towerNumError = towerNumber.isBlank()
-        latError = lat.isBlank() || lat.toDoubleOrNull() == null
-        longError = long.isBlank() || long.toDoubleOrNull() == null
-
-        val hasTextError = lineNameError || towerNumError || latError || longError
-
-        if (!hasTextError) {
-            onSave(record.copy(
-                lineName = lineName,
-                towerNumber = towerNumber,
-                circuit = circuit,
-                latitude = lat.toDoubleOrNull() ?: 0.0,
-                longitude = long.toDoubleOrNull() ?: 0.0,
-
-                phase = phase,
-                side = side,
-                direction = direction,
-                capturedDate = capturedDate,
-                capturedTime = capturedTime,
-
-                dynamicCircuits = dynamicCircuitsState.toMap(),
-
-                riseTemp = riseTemp,
-                humidity = humidity,
-                emissivity = emissivity,
-                ambientTemp = ambientTemp,
-                faultDescription = faultDesc,
-                faultTemp = faultTemp,
-                thermalImage = imgThermal,
-                visualImage = imgVisual,
-                towerImage = imgTower,
-                extraImage = imgExtra,
-                status = RecordStatus.READY
-            ))
+        errors = AssetForm.validate(schema, values)
+        if (errors.isEmpty()) {
+            onSave(AssetForm.apply(record, values).copy(status = RecordStatus.READY), imageEdits.toMap())
         }
     }
 
-    // --- 5. MAIN UI ---
+    @Composable
+    fun FieldGroup(name: String, fields: List<com.geospatial.processing.core.plugin.PropertyDefinition>) {
+        SectionHeader(name)
+        PropertyGroupForm(
+            fields = fields,
+            values = values,
+            errors = errors,
+            onValueChange = { key, value -> values[key] = value; errors = errors - key }
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+
+    @Composable
+    fun RowScope.Slot(slot: com.geospatial.processing.core.plugin.ImageSlotDef) {
+        ImageSlot(slot.label, previewOf(slot.id), false,
+            onUpload = { setImage(slot.id, it) },
+            onEdit = { file -> imageFileToEdit = file; editingSlotId = slot.id }
+        )
+    }
+
+    // --- MAIN UI ---
     Scaffold(
         containerColor = Color.Transparent,
         floatingActionButton = {
@@ -166,157 +124,70 @@ fun DetailView(
                 Text("Tower Inspection Details", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // --- SECTION 1: LOCATION & TIME ---
-                SectionHeader("Location & Temporal Data")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    ValidatedTextField(lineName, { lineName = it; lineNameError = false }, "Line Name", lineNameError, Modifier.weight(1f))
-                    ValidatedTextField(towerNumber, { towerNumber = it; towerNumError = false }, "Tower No", towerNumError, Modifier.weight(0.5f))
-                    ValidatedTextField(circuit, { circuit = it }, "Circuit", false, Modifier.weight(0.5f))
+                // --- FIRST FIELD GROUP + CLASSIFICATION ---
+                groups.firstOrNull()?.let { (name, fields) ->
+                    SectionHeader(name)
+                    PropertyGroupForm(fields, values, errors, onValueChange = { key, value -> values[key] = value; errors = errors - key })
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    ValidatedTextField(phase, { phase = it }, "Phase", false, Modifier.weight(1f))
-                    ValidatedTextField(side, { side = it }, "Side", false, Modifier.weight(1f))
-                    ValidatedTextField(direction, { direction = it }, "Direction", false, Modifier.weight(1f))
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    ValidatedTextField(capturedDate, { capturedDate = it }, "Captured Date", false, Modifier.weight(1f))
-                    ValidatedTextField(capturedTime, { capturedTime = it }, "Captured Time", false, Modifier.weight(1f))
-                    ValidatedTextField(lat, { lat = it; latError = false }, "Latitude", latError, Modifier.weight(1f))
-                    ValidatedTextField(long, { long = it; longError = false }, "Longitude", longError, Modifier.weight(1f))
-                }
-
-                val reportDisplay = record.resolvedReportTitle
 
                 OutlinedTextField(
-                    value = reportDisplay,
+                    value = presentation.reportTitle,
                     onValueChange = {},
                     readOnly = true,
                     label = { Text("Report Classification") },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
-                        disabledContainerColor = if (record.isFault) MaterialTheme.colorScheme.error.copy(alpha = 0.1f) else MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f),
-                        disabledTextColor = if (record.isFault) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        disabledContainerColor = if (presentation.isFault) MaterialTheme.colorScheme.error.copy(alpha = 0.1f) else MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f),
+                        disabledTextColor = if (presentation.isFault) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     ),
                     enabled = false
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // --- SECTION 2: IMAGES ---
+                // --- IMAGES ---
                 SectionHeader("Inspection Images")
-
                 Column {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        ImageSlot(lblLocation, resolvedVisual, false,
-                            onUpload = { imgVisual = it },
-                            onEdit = { file -> imageFileToEdit = file; editingSlotLabel = lblLocation }
-                        )
-                        ImageSlot(lblThermal, resolvedThermal, false,
-                            onUpload = { imgThermal = it },
-                            onEdit = { file -> imageFileToEdit = file; editingSlotLabel = lblThermal }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-
-                        if (!isMidSpan && !isSleeve && !isEarthWire) {
-                            TowerSequenceNavigator(
-                                previousItem = prevItemName,
-                                currentItem = record.towerNumber,
-                                nextItem = nextItemName,
-                                modifier = Modifier.width(65.dp)
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                        }
-
-                        ImageSlot(lblTowerSpan, resolvedTower, false,
-                            onUpload = { imgTower = it },
-                            onEdit = { file -> imageFileToEdit = file; editingSlotLabel = lblTowerSpan }
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        ImageSlot(lblRgb, resolvedExtra, false,
-                            onUpload = { imgExtra = it },
-                            onEdit = { file -> imageFileToEdit = file; editingSlotLabel = lblRgb }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // --- SECTION 3: PARAMETERS & LOAD ---
-                SectionHeader("Environmental & Load Data")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    ValidatedTextField(humidity, { humidity = it }, "Humidity (%)", false, Modifier.weight(1f))
-                    ValidatedTextField(emissivity, { emissivity = it }, "Emissivity", false, Modifier.weight(1f))
-                    ValidatedTextField(ambientTemp, { ambientTemp = it }, "Amb. Temp (°C)", false, Modifier.weight(1f))
-                }
-
-                if (dynamicCircuitsState.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Dynamic Load Circuits", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    val keys = dynamicCircuitsState.keys.toList()
-                    keys.chunked(3).forEach { rowKeys ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            rowKeys.forEach { key ->
-                                ValidatedTextField(
-                                    value = dynamicCircuitsState[key] ?: "",
-                                    onValueChange = { newValue -> dynamicCircuitsState[key] = newValue },
-                                    label = key,
-                                    isError = false,
-                                    modifier = Modifier.weight(1f)
+                    slots.chunked(2).forEachIndexed { rowIndex, rowSlots ->
+                        if (rowIndex > 0) Spacer(modifier = Modifier.height(16.dp))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            if (rowIndex == 1 && presentation.showsSequenceNavigator) {
+                                TowerSequenceNavigator(
+                                    previousItem = prevItemName,
+                                    currentItem = presentation.sequenceLabel,
+                                    nextItem = nextItemName,
+                                    modifier = Modifier.width(65.dp)
                                 )
+                                Spacer(modifier = Modifier.width(16.dp))
                             }
-                            repeat(3 - rowKeys.size) {
-                                Spacer(modifier = Modifier.weight(1f))
+                            rowSlots.forEachIndexed { i, slot ->
+                                if (i > 0) Spacer(modifier = Modifier.width(16.dp))
+                                Slot(slot)
                             }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // --- SECTION 4: FAULT ANALYSIS ---
-                SectionHeader("Fault Analysis")
-                ValidatedTextField(faultDesc, { faultDesc = it }, "Fault Description", false, Modifier.fillMaxWidth())
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    ValidatedTextField(faultTemp, { faultTemp = it }, "Fault Temp (°C)", false, Modifier.weight(1f))
-                    ValidatedTextField(riseTemp, { riseTemp = it }, "Rise Temp (°C)", false, Modifier.weight(1f))
-                }
-                Spacer(modifier = Modifier.height(80.dp))
+                // --- REMAINING FIELD GROUPS ---
+                groups.drop(1).forEach { (name, fields) -> FieldGroup(name, fields) }
+                Spacer(modifier = Modifier.height(56.dp))
             }
         }
 
-        // --- NEW: THE PRO ANNOTATION EDITOR POPUP ---
+        // --- THE PRO ANNOTATION EDITOR POPUP ---
         imageFileToEdit?.let { currentFile ->
             com.geospatial.processing.ui.editor.StandaloneImageEditorWindow(
                 initialFile = currentFile,
-                onDismiss = {
-                    // This kills the child window instantly when the X is clicked
-                    imageFileToEdit = null
-                },
+                onDismiss = { imageFileToEdit = null },
                 onSaveToSlot = { modifiedBytes ->
-                    // Instantly saves the compressed output back to the UI!
-                    when (editingSlotLabel) {
-                        lblLocation -> imgVisual = modifiedBytes
-                        lblThermal -> imgThermal = modifiedBytes
-                        lblRgb -> imgExtra = modifiedBytes
-                        else -> imgTower = modifiedBytes
-                    }
-                    // Setting this to null closes the Window safely
+                    setImage(editingSlotId, modifiedBytes)
                     imageFileToEdit = null
                 }
             )
         }
-
-    } // end Scaffold
+    }
 }
 
 // --- HELPER 1: Text Field ---

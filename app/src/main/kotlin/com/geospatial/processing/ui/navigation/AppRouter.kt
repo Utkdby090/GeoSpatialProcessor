@@ -52,6 +52,8 @@ fun FrameWindowScope.AppRouter(
             MainScreen(
                 state = state,
                 onAction = workbench::onAction,
+                plugin = workbench.plugin,
+                imageResolver = workbench.imageResolver,
                 windowState = windowState,
                 onCloseApp = onCloseApp,
                 // Also closes the project database, so the folder can be exported/renamed.
