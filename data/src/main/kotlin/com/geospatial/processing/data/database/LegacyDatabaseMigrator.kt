@@ -34,7 +34,7 @@ object LegacyDatabaseMigrator {
 
     /**
      * Copies every legacy record into a new project in [workspaceDir].
-     * Returns the new project folder (left OPEN as the current project), or null on failure.
+     * Returns the new project folder (closed again, ready to be opened), or null on failure.
      */
     suspend fun migrateInto(workspaceDir: File): File? {
         if (!legacyFile.isFile) return null
@@ -48,9 +48,11 @@ object LegacyDatabaseMigrator {
 
             val projectDir = ProjectManager.createNewProject(workspaceDir, uniqueName(workspaceDir), "com.geo.telecom")
                 ?: return null
-            val target = GeoRepository(DatabaseConnectionManager.project)
-            records.forEach { target.saveRecord(it.copy(id = 0)) }
-            target.logAuditAction("LEGACY_IMPORT", "Imported ${records.size} records from ${legacyFile.name}")
+            ProjectSession.open(projectDir).use { session ->
+                val target = GeoRepository(session.database)
+                records.forEach { target.saveRecord(it.copy(id = 0)) }
+                target.logAuditAction("LEGACY_IMPORT", "Imported ${records.size} records from ${legacyFile.name}")
+            }
 
             markerFile.writeText("migrated to ${projectDir.absolutePath}")
             projectDir
