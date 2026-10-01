@@ -23,7 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.geospatial.processing.domain.model.GeoRecord
+import com.geospatial.processing.core.plugin.DomainPlugin
+import com.geospatial.processing.domain.model.Asset
 import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.JFrame
@@ -31,8 +32,9 @@ import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
 fun TreeView(
-    records: List<GeoRecord>,
-    selectedRecord: GeoRecord?,
+    records: List<Asset>,
+    plugin: DomainPlugin,
+    selectedRecord: Asset?,
     rootDir: String,
     isAscending: Boolean,
     onToggleSort: () -> Unit,
@@ -41,10 +43,10 @@ fun TreeView(
     isDarkTheme: Boolean,
     onThemeToggle: () -> Unit,
 
-    onSelect: (GeoRecord) -> Unit,
+    onSelect: (Asset) -> Unit,
     onImportClick: (File) -> Unit,
     onExportClick: (File) -> Unit,
-    onDeleteClick: (GeoRecord) -> Unit,
+    onDeleteClick: (Asset) -> Unit,
     modifier: Modifier = Modifier
 ) {
     // State for scrolling
@@ -150,7 +152,8 @@ fun TreeView(
         // --- 2. THE SCROLLABLE LIST ---
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                items(records) { record ->
+                items(records, key = { it.id }) { record ->
+                    val labels = plugin.present(record)
                     val isSelected = selectedRecord?.id == record.id
 
                     // Secondary color (Azure) handles highlights automatically
@@ -180,7 +183,7 @@ fun TreeView(
                             // Main Text Content
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Tower ${record.towerNumber}",
+                                    text = labels.listTitle,
                                     // Switches between Azure (selected) or dynamic OnSurface color
                                     color = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
@@ -191,7 +194,7 @@ fun TreeView(
                                 Spacer(modifier = Modifier.height(2.dp))
 
                                 Text(
-                                    text = if (record.lineName.isNotBlank()) record.lineName else "Circuit: ${record.circuit}",
+                                    text = labels.listSubtitle,
                                     // Secondary text is just onSurface with 60% opacity
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                     fontSize = 12.sp,

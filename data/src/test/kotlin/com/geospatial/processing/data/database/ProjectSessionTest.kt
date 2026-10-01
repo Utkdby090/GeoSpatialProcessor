@@ -1,7 +1,7 @@
 package com.geospatial.processing.data.database
 
-import com.geospatial.processing.data.repository.GeoRepository
-import com.geospatial.processing.domain.model.GeoRecord
+import com.geospatial.processing.data.repository.AssetRepository
+import com.geospatial.processing.domain.model.Asset
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.nio.file.Files
@@ -22,14 +22,19 @@ class ProjectSessionTest {
 
     private fun projectDir(name: String) = File(root, name).apply { mkdirs() }
 
-    private fun record(tower: String) = GeoRecord(lineName = "Line", towerNumber = tower, latitude = 1.0, longitude = 2.0)
+    private fun asset(tower: String, position: Int = 0) =
+        Asset(pluginId = "test", position = position, latitude = 1.0, longitude = 2.0, properties = mapOf("tower" to tower))
+
+    private fun towers(session: ProjectSession) = runBlocking {
+        AssetRepository(session.database).getAll().map { it.property("tower") }
+    }
 
     @Test
-    fun `open creates project db with tables`() = runBlocking {
+    fun `open creates project db with tables`() {
         val dir = projectDir("A")
         ProjectSession.open(dir).use { session ->
             assertTrue(File(dir, ProjectDatabaseFiles.PROJECT_DB).isFile)
-            assertEquals(emptyList(), GeoRepository(session.database).getAllRecords())
+            assertEquals(emptyList(), towers(session))
         }
     }
 
@@ -38,12 +43,12 @@ class ProjectSessionTest {
         val a = ProjectSession.open(projectDir("A"))
         val b = ProjectSession.open(projectDir("B"))
         try {
-            GeoRepository(a.database).saveRecord(record("A-1"))
-            GeoRepository(b.database).saveRecord(record("B-1"))
-            GeoRepository(b.database).saveRecord(record("B-2"))
+            AssetRepository(a.database).save(asset("A-1"))
+            AssetRepository(b.database).save(asset("B-1", 0))
+            AssetRepository(b.database).save(asset("B-2", 1))
 
-            assertEquals(listOf("A-1"), GeoRepository(a.database).getAllRecords().map { it.towerNumber })
-            assertEquals(listOf("B-1", "B-2"), GeoRepository(b.database).getAllRecords().map { it.towerNumber })
+            assertEquals(listOf("A-1"), towers(a))
+            assertEquals(listOf("B-1", "B-2"), towers(b))
         } finally {
             a.close(); b.close()
         }
@@ -52,17 +57,15 @@ class ProjectSessionTest {
     @Test
     fun `records survive close and reopen`() = runBlocking {
         val dir = projectDir("A")
-        ProjectSession.open(dir).use { GeoRepository(it.database).saveRecord(record("T-1")) }
-        ProjectSession.open(dir).use { session ->
-            assertEquals(listOf("T-1"), GeoRepository(session.database).getAllRecords().map { it.towerNumber })
-        }
+        ProjectSession.open(dir).use { AssetRepository(it.database).save(asset("T-1")) }
+        ProjectSession.open(dir).use { session -> assertEquals(listOf("T-1"), towers(session)) }
     }
 
     @Test
     fun `closing releases the database so the folder can be renamed`() = runBlocking {
         val dir = projectDir("A")
         val session = ProjectSession.open(dir)
-        GeoRepository(session.database).saveRecord(record("T-1"))
+        AssetRepository(session.database).save(asset("T-1"))
         session.close()
         session.close() // idempotent
 
@@ -74,7 +77,7 @@ class ProjectSessionTest {
     fun `a closed session can no longer be used`() {
         val session = ProjectSession.open(projectDir("A"))
         session.close()
-        assertFailsWith<Exception> { runBlocking { GeoRepository(session.database).getAllRecords() } }
+        assertFailsWith<Exception> { towers(session) }
     }
 
     @Test

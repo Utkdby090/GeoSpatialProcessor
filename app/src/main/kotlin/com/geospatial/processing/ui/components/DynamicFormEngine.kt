@@ -1,67 +1,43 @@
 package com.geospatial.processing.ui.components
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.geospatial.processing.core.plugin.FieldType
 import com.geospatial.processing.core.plugin.PropertyDefinition
+import com.geospatial.processing.ui.ValidatedTextField
 
+/**
+ * Renders the fields of ONE schema group, row by row (see [PropertyDefinition.row] / [PropertyDefinition.weight]).
+ * Rows narrower than the group's widest row are padded, so e.g. a row with one load circuit
+ * keeps the same column width as a full row of three.
+ */
 @Composable
-fun DynamicFormEngine(
-    schema: List<PropertyDefinition>,
-    propertiesState: MutableMap<String, String>, // Live map holding the user's typed data
+fun PropertyGroupForm(
+    fields: List<PropertyDefinition>,
+    values: Map<String, String>,
+    errors: Set<String>,
+    onValueChange: (key: String, value: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        // Chunk the fields into rows of 3 for a clean dashboard look
-        schema.chunked(3).forEach { rowFields ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                rowFields.forEach { field ->
-                    // Read current value from the map, default to empty string
-                    val currentValue = propertiesState[field.key] ?: ""
+    val rows = fields.groupBy { it.row }.toSortedMap().values
+    val fullRowWeight = rows.maxOfOrNull { row -> row.sumOf { it.weight.toDouble() } }?.toFloat() ?: 1f
 
-                    Box(modifier = Modifier.weight(1f)) {
-                        when (field.type) {
-                            FieldType.TEXT, FieldType.NUMBER -> {
-                                OutlinedTextField(
-                                    value = currentValue,
-                                    onValueChange = { propertiesState[field.key] = it },
-                                    label = { Text(field.label) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    isError = field.isRequired && currentValue.isBlank(),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
-                                    )
-                                )
-                            }
-                            FieldType.DROPDOWN -> {
-                                // You would implement a standard Compose DropdownMenu here
-                                // using field.dropdownOptions
-                                OutlinedTextField(
-                                    value = currentValue,
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    label = { Text(field.label) },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                            FieldType.BOOLEAN -> {
-                                // You would implement a Checkbox or Switch here
-                            }
-                        }
-                    }
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        rows.forEach { rowFields ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                rowFields.forEach { field ->
+                    // DROPDOWN and BOOLEAN are shown as text for now; no plugin uses them yet.
+                    ValidatedTextField(
+                        value = values[field.key].orEmpty(),
+                        onValueChange = { onValueChange(field.key, it) },
+                        label = field.label,
+                        isError = field.key in errors,
+                        modifier = Modifier.weight(field.weight)
+                    )
                 }
-                // Fill empty slots if the row has less than 3 items to keep width uniform
-                repeat(3 - rowFields.size) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
+                val missing = fullRowWeight - rowFields.sumOf { it.weight.toDouble() }.toFloat()
+                if (missing > 0.01f) Spacer(Modifier.weight(missing))
             }
         }
     }

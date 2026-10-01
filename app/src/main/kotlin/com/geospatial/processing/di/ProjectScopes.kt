@@ -1,5 +1,6 @@
 package com.geospatial.processing.di
 
+import com.geospatial.processing.core.plugin.DomainPlugin
 import com.geospatial.processing.data.database.ProjectSession
 import org.koin.core.Koin
 import org.koin.core.qualifier.named
@@ -40,6 +41,13 @@ class KoinProjectOpener(private val koin: Koin) : ProjectOpener {
         scope.registerCallback(object : ScopeCallback {
             override fun onScopeClose(scope: Scope) = session.close()
         })
+        try {
+            // Fail now (and stay on the dashboard) rather than mid-composition if the plugin is missing.
+            scope.get<DomainPlugin>()
+        } catch (e: Exception) {
+            scope.close()
+            throw e
+        }
         return OpenProject(projectDir, scope) { if (!scope.closed) scope.close() }
     }
 }
