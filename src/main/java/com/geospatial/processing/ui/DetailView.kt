@@ -3,7 +3,7 @@ package com.geospatial.processing.ui
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Create
@@ -142,28 +142,28 @@ fun DetailView(
 
     // --- 5. MAIN UI ---
     Scaffold(
-        backgroundColor = Color.Transparent,
+        containerColor = Color.Transparent,
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                text = { Text("SAVE TOWER DATA", color = MaterialTheme.colors.onPrimary) },
-                icon = { Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colors.onPrimary) },
+                text = { Text("SAVE TOWER DATA", color = MaterialTheme.colorScheme.onPrimary) },
+                icon = { Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary) },
                 onClick = { validateAndSave() },
-                backgroundColor = MaterialTheme.colors.primaryVariant
+                containerColor = MaterialTheme.colorScheme.primaryContainer
             )
         }
     ) { padding ->
         Card(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
-            elevation = 0.dp,
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             shape = RoundedCornerShape(12.dp),
-            backgroundColor = MaterialTheme.colors.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colors.onSurface.copy(alpha = 0.12f))
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
         ) {
             Column(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(32.dp)
             ) {
                 // --- HEADER ---
-                Text("Tower Inspection Details", style = MaterialTheme.typography.h5, fontWeight = FontWeight.Bold, color = MaterialTheme.colors.onSurface)
+                Text("Tower Inspection Details", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // --- SECTION 1: LOCATION & TIME ---
@@ -195,9 +195,9 @@ fun DetailView(
                     readOnly = true,
                     label = { Text("Report Classification") },
                     modifier = Modifier.fillMaxWidth(),
-                    colors = TextFieldDefaults.outlinedTextFieldColors(
-                        backgroundColor = if (record.isFault) MaterialTheme.colors.error.copy(alpha = 0.1f) else MaterialTheme.colors.secondary.copy(alpha = 0.1f),
-                        disabledTextColor = if (record.isFault) MaterialTheme.colors.error else MaterialTheme.colors.onSurface
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledContainerColor = if (record.isFault) MaterialTheme.colorScheme.error.copy(alpha = 0.1f) else MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f),
+                        disabledTextColor = if (record.isFault) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     ),
                     enabled = false
                 )
@@ -257,7 +257,7 @@ fun DetailView(
 
                 if (dynamicCircuitsState.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Dynamic Load Circuits", style = MaterialTheme.typography.subtitle2, color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f))
+                    Text("Dynamic Load Circuits", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                     Spacer(modifier = Modifier.height(8.dp))
 
                     val keys = dynamicCircuitsState.keys.toList()
@@ -330,15 +330,16 @@ fun ValidatedTextField(value: String, onValueChange: (String) -> Unit, label: St
             isError = isError,
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            colors = TextFieldDefaults.outlinedTextFieldColors(
-                textColor = MaterialTheme.colors.onSurface,
-                cursorColor = MaterialTheme.colors.secondary,
-                focusedBorderColor = MaterialTheme.colors.secondary,
-                unfocusedBorderColor = MaterialTheme.colors.onSurface.copy(alpha = 0.3f),
-                focusedLabelColor = MaterialTheme.colors.secondary,
-                unfocusedLabelColor = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
-                errorBorderColor = MaterialTheme.colors.error,
-                errorLabelColor = MaterialTheme.colors.error
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                cursorColor = MaterialTheme.colorScheme.secondary,
+                focusedBorderColor = MaterialTheme.colorScheme.secondary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                focusedLabelColor = MaterialTheme.colorScheme.secondary,
+                unfocusedLabelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                errorBorderColor = MaterialTheme.colorScheme.error,
+                errorLabelColor = MaterialTheme.colorScheme.error
             )
         )
     }
@@ -364,15 +365,15 @@ fun RowScope.ImageSlot(
     }
 
     Column(modifier = Modifier.weight(1f)) {
-        Text(label, style = MaterialTheme.typography.subtitle2, color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f))
+        Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
         Spacer(modifier = Modifier.height(4.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colors.onSurface.copy(alpha = 0.04f))
-                .border(1.dp, MaterialTheme.colors.onSurface.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
+                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
                 .clickable {
                     val file = pickImageFile()
                     if (file != null) { val compressed = ImageUtils.compressImage(file); if (compressed != null) onUpload(compressed) }
@@ -406,20 +407,20 @@ fun RowScope.ImageSlot(
                             }
                         },
                         modifier = Modifier
-                            .background(MaterialTheme.colors.surface.copy(alpha = 0.85f), RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), RoundedCornerShape(50))
                             .size(36.dp)
                     ) {
-                        Icon(Icons.Default.Create, contentDescription = "Edit Image", tint = MaterialTheme.colors.secondary, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Create, contentDescription = "Edit Image", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
                     }
 
                     // 2. DELETE BUTTON
                     IconButton(
                         onClick = { onUpload(ByteArray(0)) },
                         modifier = Modifier
-                            .background(MaterialTheme.colors.surface.copy(alpha = 0.85f), RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), RoundedCornerShape(50))
                             .size(36.dp)
                     ) {
-                        Icon(Icons.Default.Delete, contentDescription = "Clear Image", tint = MaterialTheme.colors.error, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Delete, contentDescription = "Clear Image", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                     }
                 }
 
@@ -428,14 +429,14 @@ fun RowScope.ImageSlot(
                         text = "Local File",
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .background(MaterialTheme.colors.onBackground.copy(alpha = 0.7f), RoundedCornerShape(topEnd = 8.dp))
+                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f), RoundedCornerShape(topEnd = 8.dp))
                             .padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = MaterialTheme.colors.surface,
-                        style = MaterialTheme.typography.overline
+                        color = MaterialTheme.colorScheme.surface,
+                        style = MaterialTheme.typography.labelSmall
                     )
                 }
             } else {
-                Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colors.onSurface.copy(alpha = 0.3f))
+                Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
             }
         }
     }
@@ -443,8 +444,8 @@ fun RowScope.ImageSlot(
 
 @Composable
 fun SectionHeader(title: String) {
-    Text(title, style = MaterialTheme.typography.h6, color = MaterialTheme.colors.primary, modifier = Modifier.padding(bottom = 8.dp))
-    Divider(color = MaterialTheme.colors.onSurface.copy(alpha = 0.12f))
+    Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 8.dp))
+    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
     Spacer(modifier = Modifier.height(8.dp))
 }
 

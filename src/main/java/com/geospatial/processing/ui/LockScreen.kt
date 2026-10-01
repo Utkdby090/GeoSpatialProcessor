@@ -3,7 +3,7 @@ package com.geospatial.processing.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,7 +37,7 @@ fun LockScreen(
     ) {
         Card(
             modifier = Modifier.width(500.dp).padding(16.dp),
-            elevation = 8.dp,
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
             Column(
@@ -49,16 +49,16 @@ fun LockScreen(
                 Text(
                     text = titleText,
                     color = Color.Red,
-                    style = MaterialTheme.typography.h6,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(bottom = 24.dp)
                 )
 
-                Text("Your Machine ID:", style = MaterialTheme.typography.caption)
+                Text("Your Machine ID:", style = MaterialTheme.typography.bodySmall)
                 Text(
                     machineId,
-                    style = MaterialTheme.typography.h6,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.background(Color.LightGray.copy(0.3f)).padding(8.dp)
                 )
@@ -77,7 +77,7 @@ fun LockScreen(
                 Button(
                     onClick = { onKeyEntered(keyInput) },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
-                    colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFF2ECC71))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2ECC71))
                 ) {
                     Text("ACTIVATE APP", color = Color.White, fontWeight = FontWeight.Bold)
                 }
