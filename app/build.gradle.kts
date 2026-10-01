@@ -16,9 +16,19 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
 
+    // --- Architecture: ViewModels + Koin DI ---
+    implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.koin.core)
+    implementation(libs.koin.compose)
+    implementation(libs.koin.compose.viewmodel)
+
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.swing) // Dispatchers.Main for viewModelScope
     implementation(libs.slf4j.api)
     implementation(libs.logback.classic)
+
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.koin.test)
 }
 
 compose.desktop {

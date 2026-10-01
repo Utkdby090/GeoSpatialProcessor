@@ -27,17 +27,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
-import com.geospatial.processing.data.repository.GeoRepository
 import com.geospatial.processing.domain.model.GeoRecord
 import com.geospatial.processing.domain.model.RecordStatus
-import com.geospatial.processing.domain.model.isDynamicallyReady
-import com.geospatial.processing.domain.usecase.CsvImportService
-import com.geospatial.processing.domain.usecase.PdfGenerationService
 import com.geospatial.processing.ui.theme.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.awt.Image
 import javax.imageio.ImageIO
@@ -45,167 +37,62 @@ import javax.swing.JFrame
 
 @Composable
 fun FrameWindowScope.MainScreen(
-    repository: GeoRepository,
+    state: WorkbenchUiState,
+    onAction: (WorkbenchAction) -> Unit,
     windowState: WindowState,
     onCloseApp: () -> Unit,
     onCloseProject: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    var records by remember { mutableStateOf<List<GeoRecord>>(emptyList()) }
-    var isDarkTheme by remember { mutableStateOf(false) }
-    var sortAscending by remember { mutableStateOf(true) }
-    var selectedRecordId by remember { mutableStateOf<Int?>(null) }
-
-
-    val displayedRecords = remember(records, sortAscending) {
-        if (sortAscending) records else records.reversed()
-    }
-
-    var selectedIndex = displayedRecords.indexOfFirst { it.id == selectedRecordId }.takeIf { it >= 0 }
-    val selectedRecord = selectedIndex?.let { displayedRecords[it] }
-    val prevRecordName = selectedIndex?.let { displayedRecords.getOrNull(it - 1)?.towerNumber }
-    val nextRecordName = selectedIndex?.let { displayedRecords.getOrNull(it + 1)?.towerNumber }
-
-    var rootImageDirectory by remember { mutableStateOf("C:\\Tower_images") }
-
-    var isImporting by remember { mutableStateOf(false) }
-    var importProgress by remember { mutableStateOf(0f) }
-    var importStatusText by remember { mutableStateOf("Preparing...") }
+    // UI-only state; everything else comes from WorkbenchViewModel.
     var showClearConfirmDialog by remember { mutableStateOf(false) }
-    var showImportSuccessDialog by remember { mutableStateOf(false) }
-
-    // Editor State
     var showAnnotationUtility by remember { mutableStateOf(false) }
 
-    var isExporting by remember { mutableStateOf(false) }
-    var exportProgressRatio by remember { mutableStateOf(0f) }
-    var exportStatusText by remember { mutableStateOf("Preparing...") }
+    val selectedRecord = state.selectedRecord
+    val importCsv = { val file = pickCsvFile(); if (file != null) onAction(WorkbenchAction.ImportCsv(file)) }
 
-    val csvService = remember { CsvImportService(repository) }
-    val pdfService = remember { PdfGenerationService(repository) }
-
-    LaunchedEffect(Unit) {
-        records = repository.getAllRecords()
-    }
-
-    fun doImport(file: File) {
-        scope.launch {
-            isImporting = true
-            importProgress = 0f
-            importStatusText = "Reading CSV Data..."
-
-            csvService.importCsvFile(file) { progress ->
-                importProgress = progress * 0.5f
-            }
-
-            importStatusText = "Scanning Local Folders for Images..."
-            val importedRecords = repository.getAllRecords()
-            val total = importedRecords.size
-
-            withContext(Dispatchers.IO) {
-                importedRecords.forEachIndexed { index, record ->
-                    val isReady = record.isDynamicallyReady(rootImageDirectory)
-                    val newStatus = if (isReady) RecordStatus.READY else RecordStatus.DRAFT
-
-                    if (record.status != newStatus) {
-                        repository.saveRecord(record.copy(status = newStatus))
-                    }
-                    importProgress = 0.5f + (((index + 1).toFloat() / total) * 0.5f)
-                }
-            }
-
-            records = repository.getAllRecords()
-            isImporting = false
-            showImportSuccessDialog = true
-        }
-    }
-
-    fun doExport(zipFile: File) {
-        scope.launch {
-            isExporting = true
-            exportProgressRatio = 0f
-            exportStatusText = "Initializing Export..."
-
-            try {
-                val processedCount = pdfService.generateBulkZipReport(zipFile, rootImageDirectory) { current, total ->
-                    exportProgressRatio = current.toFloat() / total.toFloat()
-                    exportStatusText = "Compressing Report $current of $total..."
-                }
-                exportStatusText = "Successfully exported $processedCount reports!"
-            } catch (e: Exception) {
-                e.printStackTrace()
-                exportStatusText = "Error during export: ${e.message}"
-            } finally {
-                delay(2000)
-                isExporting = false
-            }
-        }
-    }
-
-    fun doDelete(record: GeoRecord) {
-        scope.launch {
-            repository.deleteRecord(record.id)
-            records = repository.getAllRecords()
-            if (selectedRecord?.id == record.id) selectedIndex = null
-        }
-    }
-
-    fun doClearAll() {
-        scope.launch {
-            repository.clearAllData()
-            records = emptyList()
-            selectedIndex = null
-            showClearConfirmDialog = false
-        }
-    }
-
-    GeospatialEnterpriseTheme(darkTheme = isDarkTheme) {
+    GeospatialEnterpriseTheme(darkTheme = state.isDarkTheme) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
 
             Column(modifier = Modifier.fillMaxSize()) {
 
-
-
-
-                // --- 2. CUSTOM IN-APP MENU BAR ---
+                // --- CUSTOM IN-APP MENU BAR ---
                 CustomThemeableMenuBar(
-                    isDarkTheme = isDarkTheme,
-                    onThemeToggle = { isDarkTheme = !isDarkTheme },
+                    isDarkTheme = state.isDarkTheme,
+                    onThemeToggle = { onAction(WorkbenchAction.ToggleTheme) },
                     onNewProject = { showClearConfirmDialog = true },
-                    onImportCsv = { val file = pickCsvFile(); if (file != null) doImport(file) },
-                    onExportPdf = { val file = saveZipFile(); if (file != null) doExport(file) },
+                    onImportCsv = importCsv,
+                    onExportPdf = { val file = saveZipFile(); if (file != null) onAction(WorkbenchAction.ExportZip(file)) },
                     onExit = onCloseApp,
                     hasSelection = selectedRecord != null,
-                    onDeleteSelected = { selectedRecord?.let { doDelete(it) } },
+                    onDeleteSelected = { onAction(WorkbenchAction.DeleteSelected) },
                     onClearAllData = { showClearConfirmDialog = true },
-                    onRefreshList = { scope.launch { records = repository.getAllRecords() } },
-                    onOpenTools = { showAnnotationUtility = true }, // Wired callback
+                    onRefreshList = { onAction(WorkbenchAction.Refresh) },
+                    onOpenTools = { showAnnotationUtility = true },
                     onCloseProject = onCloseProject
-
                 )
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
 
-                // --- 3. ROOT NAVIGATION LOGIC ---
-                if (records.isEmpty()) {
-                    NoProjectView(onImportClicked = { val file = pickCsvFile(); if (file != null) doImport(file) })
+                // --- ROOT NAVIGATION LOGIC ---
+                if (state.records.isEmpty()) {
+                    NoProjectView(onImportClicked = importCsv)
                 } else {
                     Row(modifier = Modifier.fillMaxSize()) {
 
                         // LEFT PANE: Tree View
                         Box(modifier = Modifier.weight(0.3f).fillMaxHeight().background(MaterialTheme.colorScheme.surface).padding(end = 1.dp)) {
                             TreeView(
-                                records = displayedRecords,
+                                records = state.displayedRecords,
                                 selectedRecord = selectedRecord,
-                                rootDir = rootImageDirectory,
-                                isAscending = sortAscending,
-                                onToggleSort = { sortAscending = !sortAscending },
-                                isDarkTheme = isDarkTheme,
-                                onThemeToggle = { isDarkTheme = !isDarkTheme },
-                                onSelect = { record -> selectedRecordId = record.id },
-                                onImportClick = { doImport(it) },
-                                onExportClick = { doExport(it) },
-                                onDeleteClick = { doDelete(it) }
+                                rootDir = state.rootImageDirectory,
+                                isAscending = state.sortAscending,
+                                onToggleSort = { onAction(WorkbenchAction.ToggleSort) },
+                                isDarkTheme = state.isDarkTheme,
+                                onThemeToggle = { onAction(WorkbenchAction.ToggleTheme) },
+                                onSelect = { record -> onAction(WorkbenchAction.Select(record)) },
+                                onImportClick = { onAction(WorkbenchAction.ImportCsv(it)) },
+                                onExportClick = { onAction(WorkbenchAction.ExportZip(it)) },
+                                onDeleteClick = { onAction(WorkbenchAction.Delete(it)) }
                             )
                         }
 
@@ -216,17 +103,11 @@ fun FrameWindowScope.MainScreen(
                         Box(modifier = Modifier.weight(0.7f).fillMaxHeight()) {
                             if (selectedRecord != null) {
                                 DetailView(
-                                    record = selectedRecord!!,
-                                    rootDir = rootImageDirectory,
-                                    prevItemName = prevRecordName,
-                                    nextItemName = nextRecordName,
-                                    onSave = { updatedRecord ->
-                                        scope.launch {
-                                            repository.saveRecord(updatedRecord)
-                                            records = repository.getAllRecords()
-                                            selectedIndex = records.indexOfFirst { it.id == updatedRecord.id }
-                                        }
-                                    }
+                                    record = selectedRecord,
+                                    rootDir = state.rootImageDirectory,
+                                    prevItemName = state.previousTowerName,
+                                    nextItemName = state.nextTowerName,
+                                    onSave = { updatedRecord -> onAction(WorkbenchAction.Save(updatedRecord)) }
                                 )
                             } else {
                                 NoSelectionView()
@@ -237,29 +118,29 @@ fun FrameWindowScope.MainScreen(
             }
 
             // --- OVERLAYS & DIALOGS ---
-            if (isImporting) {
+            state.importProgress?.let { import ->
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).clickable(enabled = false) {}, contentAlignment = Alignment.Center) {
                     Card(modifier = Modifier.width(350.dp).padding(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Column(modifier = Modifier.padding(24.dp)) {
-                            Text(importStatusText, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+                            Text(import.statusText, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.height(16.dp))
-                            LinearProgressIndicator(progress = { importProgress }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondary)
+                            LinearProgressIndicator(progress = { import.progress }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondary)
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("${(importProgress * 100).toInt()}% Complete", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                            Text("${(import.progress * 100).toInt()}% Complete", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                         }
                     }
                 }
             }
 
-            if (isExporting) {
+            state.exportProgress?.let { export ->
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).clickable(enabled = false) {}, contentAlignment = Alignment.Center) {
                     Card(modifier = Modifier.width(400.dp).padding(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Column(modifier = Modifier.padding(24.dp)) {
                             Text("Generating Bulk ZIP...", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.height(16.dp))
-                            LinearProgressIndicator(progress = { exportProgressRatio }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondary)
+                            LinearProgressIndicator(progress = { export.progress }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondary)
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text(exportStatusText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                            Text(export.statusText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                         }
                     }
                 }
@@ -272,7 +153,10 @@ fun FrameWindowScope.MainScreen(
                     title = { Text("Start New Project?", color = MaterialTheme.colorScheme.onSurface) },
                     text = { Text("This will delete all current tower records and photos. This action cannot be undone.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)) },
                     confirmButton = {
-                        Button(onClick = { doClearAll() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = Color.White)) {
+                        Button(
+                            onClick = { onAction(WorkbenchAction.ClearAll); showClearConfirmDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = Color.White)
+                        ) {
                             Text("Yes, Clear All")
                         }
                     },
@@ -282,9 +166,9 @@ fun FrameWindowScope.MainScreen(
                 )
             }
 
-            if (showImportSuccessDialog) {
+            if (state.showImportSuccess) {
                 AlertDialog(
-                    onDismissRequest = { showImportSuccessDialog = false },
+                    onDismissRequest = { onAction(WorkbenchAction.DismissImportSuccess) },
                     containerColor = MaterialTheme.colorScheme.surface,
                     title = { Text("Import Successful", color = MaterialTheme.colorScheme.secondary) },
                     text = {
@@ -292,12 +176,12 @@ fun FrameWindowScope.MainScreen(
                             Text("The tower metrics have been loaded successfully.", color = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.height(12.dp))
                             Text("The app is now automatically syncing photos from your root directory:", color = MaterialTheme.colorScheme.onSurface)
-                            Text(text = rootImageDirectory, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(vertical = 8.dp))
+                            Text(text = state.rootImageDirectory, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(vertical = 8.dp))
                             Text("Please ensure your tower folders (e.g., '76_0') are placed in this location to view the images.", color = MaterialTheme.colorScheme.onSurface)
                         }
                     },
                     confirmButton = {
-                        Button(onClick = { showImportSuccessDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary, contentColor = Color.White)) {
+                        Button(onClick = { onAction(WorkbenchAction.DismissImportSuccess) }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary, contentColor = Color.White)) {
                             Text("Got it")
                         }
                     }
@@ -306,7 +190,7 @@ fun FrameWindowScope.MainScreen(
 
             // --- STANDALONE ANNOTATION UTILITY ---
             if (showAnnotationUtility) {
-                com.geospatial.processing.ui.editor.StandaloneImageEditorWindow( // <-- Add "Window" here
+                com.geospatial.processing.ui.editor.StandaloneImageEditorWindow(
                     onDismiss = { showAnnotationUtility = false }
                 )
             }

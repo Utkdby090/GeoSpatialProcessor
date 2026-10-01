@@ -15,156 +15,92 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowState
-import com.geospatial.processing.data.database.DatabaseConnectionManager
-import com.geospatial.processing.data.database.LegacyDatabaseMigrator
-import com.geospatial.processing.data.repository.GeoRepository
 import com.geospatial.processing.ui.MainScreen
+import com.geospatial.processing.ui.WorkbenchViewModel
+import com.geospatial.processing.ui.components.ScopedViewModelStore
+import com.geospatial.processing.ui.workspace.DashboardViewModel
+import com.geospatial.processing.ui.workspace.NewProjectWizard
 import com.geospatial.processing.ui.workspace.ProjectDashboardUI
 import com.geospatial.processing.ui.workspace.WorkspaceLauncherUI
-import com.geospatial.processing.utils.ProjectManager
-import kotlinx.coroutines.launch
-import java.io.File
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 
-sealed class AppState {
-    object WorkspaceSelection : AppState()
-    data class ProjectDashboard(val workspaceDir: File) : AppState()
-    data class ActiveWorkbench(val workspaceDir: File, val projectDir: File) : AppState()
-}
-
+/**
+ * Shows the screen chosen by [AppViewModel]. Each screen gets its own ViewModel store, cleared when
+ * the screen is left, so a closed project's ViewModel never outlives its database.
+ */
 @Composable
 fun FrameWindowScope.AppRouter(
+    appViewModel: AppViewModel,
     windowState: WindowState,
     onCloseApp: () -> Unit
 ) {
-    var currentAppState by remember { mutableStateOf<AppState>(com.geospatial.processing.utils.WorkspacePrefs.getLastWorkspace()?.let { savedDir ->
-        DatabaseConnectionManager.connectToWorkspace(savedDir)
-        AppState.ProjectDashboard(savedDir)
-    } ?: AppState.WorkspaceSelection) }
+    val screen by appViewModel.screen.collectAsState()
 
-    // "Not now" on the legacy-import offer lasts for this app session (it is offered again next launch).
-    var legacyOfferSnoozed by remember { mutableStateOf(false) }
+    when (val current = screen) {
+        AppScreen.WorkspaceSelection ->
+            WorkspaceLauncherUI(onWorkspaceSelected = appViewModel::selectWorkspace)
 
-    when (val state = currentAppState) {
+        is AppScreen.Dashboard -> ScopedViewModelStore(key = current.workspaceDir) {
+            val dashboard = koinViewModel<DashboardViewModel> { parametersOf(current.workspaceDir) }
+            DashboardRoute(dashboard)
+        }
 
-        is AppState.WorkspaceSelection -> {
-            WorkspaceLauncherUI(
-                onWorkspaceSelected = { workspaceDir ->
-                    if (!workspaceDir.exists()) workspaceDir.mkdirs()
-                    com.geospatial.processing.utils.WorkspacePrefs.saveWorkspace(workspaceDir.absolutePath)
-                    DatabaseConnectionManager.connectToWorkspace(workspaceDir)
-                    currentAppState = AppState.ProjectDashboard(workspaceDir)
-                }
+        is AppScreen.Workbench -> ScopedViewModelStore(key = current.project) {
+            val workbench = koinViewModel<WorkbenchViewModel>(scope = checkNotNull(current.project.scope))
+            val state by workbench.state.collectAsState()
+            MainScreen(
+                state = state,
+                onAction = workbench::onAction,
+                windowState = windowState,
+                onCloseApp = onCloseApp,
+                // Also closes the project database, so the folder can be exported/renamed.
+                onCloseProject = appViewModel::closeProject
             )
         }
+    }
+}
 
-        is AppState.ProjectDashboard -> {
-            var showNewProjectWizard by remember { mutableStateOf(false) }
+@Composable
+private fun DashboardRoute(viewModel: DashboardViewModel) {
+    val state by viewModel.state.collectAsState()
+    var showNewProjectWizard by remember { mutableStateOf(false) }
 
-            // One-time offer to rescue records saved by older versions in the shared global database.
-            var showLegacyOffer by remember { mutableStateOf(!legacyOfferSnoozed && LegacyDatabaseMigrator.hasPendingLegacyData()) }
-            var legacyMigrating by remember { mutableStateOf(false) }
-            var legacyError by remember { mutableStateOf<String?>(null) }
-            val scope = rememberCoroutineScope()
+    Box(modifier = Modifier.fillMaxSize()) {
+        ProjectDashboardUI(
+            state = state,
+            onOpenProject = viewModel::openProject,
+            onCreateNewProject = { showNewProjectWizard = true },
+            onImportGeox = { viewModel.importGeox(it) },
+            onExportProject = { project, destination -> viewModel.exportProject(project, destination) },
+            onRenameProject = viewModel::renameProject,
+            onDeleteProject = viewModel::deleteProject,
+            onDismissNotice = viewModel::dismissNotice
+        )
 
-            val installedPlugins = remember { listOf(com.geospatial.processing.core.plugin.telecom.TelecomPlugin()) }
-
-            Box(modifier = Modifier.fillMaxSize()) {
-                ProjectDashboardUI(
-                    workspaceDir = state.workspaceDir,
-                    onOpenProject = { projectDir ->
-                        val config = ProjectManager.readProjectConfig(projectDir)
-                        if (config != null) {
-                            DatabaseConnectionManager.connectToProject(projectDir)
-                            currentAppState = AppState.ActiveWorkbench(state.workspaceDir, projectDir)
-                        } else {
-                            println("Invalid Project: Missing project.json")
-                        }
+        if (showNewProjectWizard) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center
+            ) {
+                NewProjectWizard(
+                    availablePlugins = viewModel.availablePlugins,
+                    onProjectCreated = { selectedPluginId, projectName ->
+                        if (viewModel.createProject(selectedPluginId, projectName)) showNewProjectWizard = false
                     },
-                    onCreateNewProject = { showNewProjectWizard = true }
+                    onCancel = { showNewProjectWizard = false }
                 )
-
-                if (showNewProjectWizard) {
-                    Box(
-                        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        com.geospatial.processing.ui.workspace.NewProjectWizard(
-                            availablePlugins = installedPlugins,
-                            onProjectCreated = { selectedPluginId, projectName ->
-                                // createNewProject() also opens the new project's database.
-                                val newProjectDir = ProjectManager.createNewProject(
-                                    workspaceDir = state.workspaceDir,
-                                    projectName = projectName,
-                                    pluginId = selectedPluginId
-                                )
-
-                                if (newProjectDir != null) {
-                                    showNewProjectWizard = false
-                                    currentAppState = AppState.ActiveWorkbench(state.workspaceDir, newProjectDir)
-                                }
-                            },
-                            onCancel = { showNewProjectWizard = false }
-                        )
-                    }
-                }
-
-                if (showLegacyOffer) {
-                    LegacyImportDialog(
-                        isWorking = legacyMigrating,
-                        errorMessage = legacyError,
-                        onImport = {
-                            legacyMigrating = true
-                            legacyError = null
-                            scope.launch {
-                                val dir = LegacyDatabaseMigrator.migrateInto(state.workspaceDir)
-                                legacyMigrating = false
-                                if (dir != null) {
-                                    showLegacyOffer = false
-                                    currentAppState = AppState.ActiveWorkbench(state.workspaceDir, dir)
-                                } else {
-                                    legacyError = "The import could not be completed. Your original data is untouched. " +
-                                        "You can try again or choose \"Not now\"."
-                                }
-                            }
-                        },
-                        onNotNow = {
-                            legacyOfferSnoozed = true
-                            showLegacyOffer = false
-                        },
-                        onNeverAsk = {
-                            LegacyDatabaseMigrator.dismiss()
-                            showLegacyOffer = false
-                        }
-                    )
-                }
             }
         }
 
-        is AppState.ActiveWorkbench -> {
-            // Binds this screen's identity to the project path: switching projects rebuilds everything.
-            key(state.projectDir.absolutePath) {
-
-                // All database handling lives in DatabaseConnectionManager: one connection, one file
-                // (project.db), properly closed when the project closes. The repository just uses it.
-                val repository = remember {
-                    val openDir = DatabaseConnectionManager.currentProjectDir?.canonicalFile
-                    if (openDir != state.projectDir.canonicalFile) {
-                        DatabaseConnectionManager.connectToProject(state.projectDir)
-                    }
-                    GeoRepository(DatabaseConnectionManager.project)
-                }
-
-                MainScreen(
-                    repository = repository,
-                    windowState = windowState,
-                    onCloseApp = onCloseApp,
-                    onCloseProject = {
-                        // Also closes the project database, so the folder can be exported/renamed.
-                        DatabaseConnectionManager.connectToWorkspace(state.workspaceDir)
-                        currentAppState = AppState.ProjectDashboard(state.workspaceDir)
-                    }
-                )
-            }
+        state.legacyOffer?.let { offer ->
+            LegacyImportDialog(
+                isWorking = offer.isWorking,
+                errorMessage = offer.error,
+                onImport = { viewModel.importLegacyData() },
+                onNotNow = viewModel::snoozeLegacyOffer,
+                onNeverAsk = viewModel::dismissLegacyOfferForever
+            )
         }
     }
 }
