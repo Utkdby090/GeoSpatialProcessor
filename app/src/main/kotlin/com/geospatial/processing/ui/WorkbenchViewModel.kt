@@ -2,12 +2,14 @@ package com.geospatial.processing.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.geospatial.processing.data.repository.GeoRepository
-import com.geospatial.processing.domain.model.GeoRecord
+import com.geospatial.processing.core.plugin.DomainPlugin
+import com.geospatial.processing.data.images.ImageStore
+import com.geospatial.processing.data.repository.AssetRepository
+import com.geospatial.processing.domain.model.Asset
+import com.geospatial.processing.domain.model.AssetImage
+import com.geospatial.processing.domain.model.AssetImageResolver
 import com.geospatial.processing.domain.model.RecordStatus
-import com.geospatial.processing.domain.model.isDynamicallyReady
-import com.geospatial.processing.domain.usecase.CsvImportService
-import com.geospatial.processing.domain.usecase.PdfGenerationService
+import com.geospatial.processing.domain.report.BulkReportExporter
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,9 +27,9 @@ import java.io.File
 data class ProgressState(val statusText: String, val progress: Float)
 
 data class WorkbenchUiState(
-    val records: List<GeoRecord> = emptyList(),
+    val records: List<Asset> = emptyList(),
     val sortAscending: Boolean = true,
-    val selectedRecordId: Int? = null,
+    val selectedRecordId: String? = null,
     val rootImageDirectory: String = DEFAULT_ROOT_IMAGE_DIRECTORY,
     val isDarkTheme: Boolean = false,
     /** Non-null while a CSV import runs. */
@@ -36,27 +38,33 @@ data class WorkbenchUiState(
     val exportProgress: ProgressState? = null,
     val showImportSuccess: Boolean = false,
 ) {
-    val displayedRecords: List<GeoRecord> get() = if (sortAscending) records else records.reversed()
+    val displayedRecords: List<Asset> get() = if (sortAscending) records else records.reversed()
 
     private val selectedIndex: Int? get() = displayedRecords.indexOfFirst { it.id == selectedRecordId }.takeIf { it >= 0 }
-    val selectedRecord: GeoRecord? get() = selectedIndex?.let { displayedRecords[it] }
-    val previousTowerName: String? get() = selectedIndex?.let { displayedRecords.getOrNull(it - 1)?.towerNumber }
-    val nextTowerName: String? get() = selectedIndex?.let { displayedRecords.getOrNull(it + 1)?.towerNumber }
+    val selectedRecord: Asset? get() = selectedIndex?.let { displayedRecords[it] }
+    val previousRecord: Asset? get() = selectedIndex?.let { displayedRecords.getOrNull(it - 1) }
+    val nextRecord: Asset? get() = selectedIndex?.let { displayedRecords.getOrNull(it + 1) }
 
     companion object {
         const val DEFAULT_ROOT_IMAGE_DIRECTORY = "C:\\Tower_images"
     }
 }
 
+/** A change to one image slot made in the form, applied when the asset is saved. */
+sealed interface ImageEdit {
+    class Replace(val bytes: ByteArray) : ImageEdit
+    data object Clear : ImageEdit
+}
+
 /** User actions on the workbench (MainScreen and its children). */
 sealed interface WorkbenchAction {
     data class ImportCsv(val file: File) : WorkbenchAction
     data class ExportZip(val file: File) : WorkbenchAction
-    data class Select(val record: GeoRecord) : WorkbenchAction
-    data class Delete(val record: GeoRecord) : WorkbenchAction
+    data class Select(val record: Asset) : WorkbenchAction
+    data class Delete(val record: Asset) : WorkbenchAction
     data object DeleteSelected : WorkbenchAction
     data object ClearAll : WorkbenchAction
-    data class Save(val record: GeoRecord) : WorkbenchAction
+    data class Save(val record: Asset, val imageEdits: Map<String, ImageEdit> = emptyMap()) : WorkbenchAction
     data object Refresh : WorkbenchAction
     data object ToggleSort : WorkbenchAction
     data object ToggleTheme : WorkbenchAction
@@ -65,17 +73,20 @@ sealed interface WorkbenchAction {
 
 /** State and logic of one open project's workbench. Lives in the project's Koin scope. */
 class WorkbenchViewModel(
-    private val repository: GeoRepository,
-    private val csvService: CsvImportService,
-    private val pdfService: PdfGenerationService,
+    /** The project's industry plugin: form schema, labels, CSV format and report layout. */
+    val plugin: DomainPlugin,
+    private val repository: AssetRepository,
+    private val imageStore: ImageStore,
+    val imageResolver: AssetImageResolver,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    initialRootImageDirectory: String = WorkbenchUiState.DEFAULT_ROOT_IMAGE_DIRECTORY,
     /** How long the export result stays visible before the overlay closes. */
     private val exportResultDisplayMillis: Long = 2000,
 ) : ViewModel() {
 
     private val log = LoggerFactory.getLogger(WorkbenchViewModel::class.java)
 
-    private val _state = MutableStateFlow(WorkbenchUiState())
+    private val _state = MutableStateFlow(WorkbenchUiState(rootImageDirectory = initialRootImageDirectory))
     val state: StateFlow<WorkbenchUiState> = _state.asStateFlow()
 
     /** Completes when the initial record load has finished. */
@@ -89,7 +100,7 @@ class WorkbenchViewModel(
             is WorkbenchAction.Delete -> delete(action.record)
             WorkbenchAction.DeleteSelected -> _state.value.selectedRecord?.let { delete(it) }
             WorkbenchAction.ClearAll -> clearAll()
-            is WorkbenchAction.Save -> save(action.record)
+            is WorkbenchAction.Save -> save(action.record, action.imageEdits)
             WorkbenchAction.Refresh -> refresh()
             WorkbenchAction.ToggleSort -> _state.update { it.copy(sortAscending = !it.sortAscending) }
             WorkbenchAction.ToggleTheme -> _state.update { it.copy(isDarkTheme = !it.isDarkTheme) }
@@ -98,35 +109,48 @@ class WorkbenchViewModel(
     }
 
     fun refresh(): Job = viewModelScope.launch {
-        val records = repository.getAllRecords()
+        val records = repository.getAll()
         _state.update { it.copy(records = records) }
     }
 
-    /** CSV rows into the database (first half of the progress bar), then image check per record (second half). */
+    /** CSV rows into the database (first half of the progress bar), then an image check per asset (second half). */
     fun importCsv(file: File): Job = viewModelScope.launch {
         setImport("Reading CSV Data...", 0f)
-        csvService.importCsvFile(file) { progress -> setImport("Reading CSV Data...", progress * 0.5f) }
+        val drafts = withContext(io) {
+            plugin.getCsvImportStrategy().parse(file) { progress -> setImport("Reading CSV Data...", progress * 0.5f) }
+        }
+        val start = repository.nextPosition()
+        repository.insertAll(drafts.mapIndexed { i, draft ->
+            Asset(
+                pluginId = plugin.pluginId, position = start + i,
+                latitude = draft.latitude, longitude = draft.longitude, properties = draft.properties,
+            )
+        })
 
         setImport("Scanning Local Folders for Images...", 0.5f)
         val rootDir = _state.value.rootImageDirectory
-        val imported = repository.getAllRecords()
+        val all = repository.getAll()
         withContext(io) {
-            imported.forEachIndexed { index, record ->
-                val newStatus = if (record.isDynamicallyReady(rootDir)) RecordStatus.READY else RecordStatus.DRAFT
-                if (record.status != newStatus) repository.saveRecord(record.copy(status = newStatus))
-                setImport("Scanning Local Folders for Images...", 0.5f + ((index + 1).toFloat() / imported.size) * 0.5f)
+            all.forEachIndexed { index, asset ->
+                val newStatus = if (imageResolver.isReady(asset, rootDir)) RecordStatus.READY else RecordStatus.DRAFT
+                if (asset.status != newStatus) repository.save(asset.copy(status = newStatus))
+                setImport("Scanning Local Folders for Images...", 0.5f + ((index + 1).toFloat() / all.size) * 0.5f)
             }
         }
 
-        val records = repository.getAllRecords()
+        val records = repository.getAll()
         _state.update { it.copy(records = records, importProgress = null, showImportSuccess = true) }
     }
 
     fun exportZip(zipFile: File): Job = viewModelScope.launch {
         setExport("Initializing Export...", 0f)
         try {
-            val processedCount = pdfService.generateBulkZipReport(zipFile, _state.value.rootImageDirectory) { current, total ->
-                setExport("Compressing Report $current of $total...", current.toFloat() / total.toFloat())
+            val rootDir = _state.value.rootImageDirectory
+            val assets = repository.getAll()
+            val processedCount = withContext(io) {
+                BulkReportExporter(plugin).export(assets, { imageResolver.resolve(it, rootDir) }, zipFile) { current, total ->
+                    setExport("Compressing Report $current of $total...", current.toFloat() / total.toFloat())
+                }
             }
             setExport("Successfully exported $processedCount reports!", _state.value.exportProgress?.progress ?: 1f)
         } catch (e: Exception) {
@@ -138,22 +162,44 @@ class WorkbenchViewModel(
         }
     }
 
-    fun delete(record: GeoRecord): Job = viewModelScope.launch {
-        repository.deleteRecord(record.id)
-        val records = repository.getAllRecords()
+    fun delete(record: Asset): Job = viewModelScope.launch {
+        repository.delete(record.id, plugin.present(record).listTitle)
+        withContext(io) { imageStore.deleteAsset(record.id) }
+        val records = repository.getAll()
         _state.update {
             it.copy(records = records, selectedRecordId = it.selectedRecordId.takeUnless { id -> id == record.id })
         }
     }
 
     fun clearAll(): Job = viewModelScope.launch {
-        repository.clearAllData()
+        repository.clearAll()
+        withContext(io) { imageStore.deleteAll() }
         _state.update { it.copy(records = emptyList(), selectedRecordId = null) }
     }
 
-    fun save(record: GeoRecord): Job = viewModelScope.launch {
-        repository.saveRecord(record)
-        val records = repository.getAllRecords()
+    /** Saves [record]; new images are written into the project first, replaced/cleared image files are removed after. */
+    fun save(record: Asset, imageEdits: Map<String, ImageEdit> = emptyMap()): Job = viewModelScope.launch {
+        val images = record.images.toMutableMap()
+        val obsolete = mutableListOf<String>()
+        withContext(io) {
+            imageEdits.forEach { (slot, edit) ->
+                val oldPath = record.images[slot]?.relativePath
+                when (edit) {
+                    is ImageEdit.Replace -> {
+                        val newPath = imageStore.write(record.id, slot, edit.bytes)
+                        images[slot] = AssetImage(newPath)
+                        if (oldPath != null && oldPath != newPath) obsolete += oldPath
+                    }
+                    ImageEdit.Clear -> {
+                        images[slot] = AssetImage.Cleared
+                        if (oldPath != null) obsolete += oldPath
+                    }
+                }
+            }
+        }
+        repository.save(record.copy(images = images))
+        withContext(io) { obsolete.forEach(imageStore::delete) }
+        val records = repository.getAll()
         _state.update { it.copy(records = records) }
     }
 

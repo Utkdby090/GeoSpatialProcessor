@@ -27,7 +27,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
-import com.geospatial.processing.domain.model.GeoRecord
+import com.geospatial.processing.core.plugin.DomainPlugin
+import com.geospatial.processing.domain.model.AssetImageResolver
 import com.geospatial.processing.domain.model.RecordStatus
 import com.geospatial.processing.ui.theme.*
 import java.io.File
@@ -39,6 +40,8 @@ import javax.swing.JFrame
 fun FrameWindowScope.MainScreen(
     state: WorkbenchUiState,
     onAction: (WorkbenchAction) -> Unit,
+    plugin: DomainPlugin,
+    imageResolver: AssetImageResolver,
     windowState: WindowState,
     onCloseApp: () -> Unit,
     onCloseProject: () -> Unit
@@ -83,6 +86,7 @@ fun FrameWindowScope.MainScreen(
                         Box(modifier = Modifier.weight(0.3f).fillMaxHeight().background(MaterialTheme.colorScheme.surface).padding(end = 1.dp)) {
                             TreeView(
                                 records = state.displayedRecords,
+                                plugin = plugin,
                                 selectedRecord = selectedRecord,
                                 rootDir = state.rootImageDirectory,
                                 isAscending = state.sortAscending,
@@ -105,9 +109,11 @@ fun FrameWindowScope.MainScreen(
                                 DetailView(
                                     record = selectedRecord,
                                     rootDir = state.rootImageDirectory,
-                                    prevItemName = state.previousTowerName,
-                                    nextItemName = state.nextTowerName,
-                                    onSave = { updatedRecord -> onAction(WorkbenchAction.Save(updatedRecord)) }
+                                    plugin = plugin,
+                                    imageResolver = imageResolver,
+                                    prevItemName = state.previousRecord?.let { plugin.present(it).sequenceLabel },
+                                    nextItemName = state.nextRecord?.let { plugin.present(it).sequenceLabel },
+                                    onSave = { updated, imageEdits -> onAction(WorkbenchAction.Save(updated, imageEdits)) }
                                 )
                             } else {
                                 NoSelectionView()

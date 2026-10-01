@@ -4,8 +4,10 @@ import com.geospatial.processing.auth.AuthState
 import com.geospatial.processing.auth.LicenseBanner
 import com.geospatial.processing.auth.LicenseGate
 import com.geospatial.processing.data.database.ProjectSession
-import com.geospatial.processing.data.repository.GeoRepository
-import com.geospatial.processing.domain.model.GeoRecord
+import com.geospatial.processing.core.plugin.DomainPlugin
+import com.geospatial.processing.core.plugin.telecom.TelecomKeys
+import com.geospatial.processing.data.repository.AssetRepository
+import com.geospatial.processing.domain.model.Asset
 import com.geospatial.processing.ui.WorkbenchViewModel
 import com.geospatial.processing.ui.navigation.AppNavigator
 import com.geospatial.processing.ui.navigation.AppViewModel
@@ -87,13 +89,15 @@ class KoinWiringTest : KoinTest {
         val project = get<ProjectOpener>().open(projectDir)
         val scope = checkNotNull(project.scope)
         val session = scope.get<ProjectSession>()
-        val repository = scope.get<GeoRepository>()
-        assertSame(repository, scope.get<GeoRepository>(), "repository is scoped to the project")
+        val repository = scope.get<AssetRepository>()
+        assertSame(repository, scope.get<AssetRepository>(), "repository is scoped to the project")
+        assertEquals(TelecomKeys.PLUGIN_ID, scope.get<DomainPlugin>().pluginId, "plugin comes from project.json")
 
-        repository.saveRecord(GeoRecord(lineName = "L", towerNumber = "T-1", latitude = 0.0, longitude = 0.0))
+        repository.save(Asset(pluginId = TelecomKeys.PLUGIN_ID, position = 0, latitude = 0.0, longitude = 0.0,
+            properties = mapOf(TelecomKeys.TOWER_NUMBER to "T-1")))
         val workbench = scope.get<WorkbenchViewModel>()
         workbench.initialLoad.join()
-        assertEquals(listOf("T-1"), workbench.state.value.records.map { it.towerNumber })
+        assertEquals(listOf("T-1"), workbench.state.value.records.map { it.property(TelecomKeys.TOWER_NUMBER) })
 
         project.close()
         assertTrue(session.isClosed)

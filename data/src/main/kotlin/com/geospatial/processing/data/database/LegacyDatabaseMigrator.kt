@@ -1,6 +1,12 @@
 package com.geospatial.processing.data.database
 
-import com.geospatial.processing.data.repository.GeoRepository
+import com.geospatial.processing.core.plugin.telecom.TelecomKeys
+import com.geospatial.processing.data.images.ImageStore
+import com.geospatial.processing.data.legacy.LegacyGeoData
+import com.geospatial.processing.data.repository.AssetRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.jetbrains.exposed.sql.transactions.transaction
 import com.geospatial.processing.utils.ProjectManager
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.transactions.TransactionManager
@@ -44,14 +50,17 @@ object LegacyDatabaseMigrator {
             driver = "org.sqlite.JDBC",
         )
         return try {
-            val records = GeoRepository(legacyDb).getAllRecords()
+            val rows = withContext(Dispatchers.IO) { transaction(legacyDb) { LegacyGeoData.readAll(this) } }
 
-            val projectDir = ProjectManager.createNewProject(workspaceDir, uniqueName(workspaceDir), "com.geo.telecom")
+            val projectDir = ProjectManager.createNewProject(workspaceDir, uniqueName(workspaceDir), TelecomKeys.PLUGIN_ID)
                 ?: return null
+            // Same conversion as ProjectMigrator: image BLOBs become files in the new project.
+            val imageStore = ImageStore(projectDir)
+            val assets = rows.map { row -> LegacyGeoData.toAsset(row, imageStore::write) }
             ProjectSession.open(projectDir).use { session ->
-                val target = GeoRepository(session.database)
-                records.forEach { target.saveRecord(it.copy(id = 0)) }
-                target.logAuditAction("LEGACY_IMPORT", "Imported ${records.size} records from ${legacyFile.name}")
+                val target = AssetRepository(session.database)
+                target.insertAll(assets)
+                target.logAuditAction("LEGACY_IMPORT", "Imported ${assets.size} records from ${legacyFile.name}")
             }
 
             markerFile.writeText("migrated to ${projectDir.absolutePath}")

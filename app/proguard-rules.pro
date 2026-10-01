@@ -45,3 +45,12 @@
 # Force ProGuard to ignore warnings from 3rd party optional libraries
 -ignorewarnings
 -dontwarn org.bouncycastle.**
+
+# --- SHIELD 7: KOTLINX SERIALIZATION (project.json, asset properties JSON) ---
+-keepattributes RuntimeVisibleAnnotations,AnnotationDefault
+-keepclassmembers @kotlinx.serialization.Serializable class ** {
+    *** Companion;
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keepclasseswithmembers class **$$serializer { *; }
+-dontnote kotlinx.serialization.**

@@ -1,7 +1,8 @@
 package com.geospatial.processing.data.database
 
 import com.geospatial.processing.data.table.AuditLogs
-import com.geospatial.processing.data.table.GeoDataTable
+import com.geospatial.processing.data.table.AssetImagesTable
+import com.geospatial.processing.data.table.AssetsTable
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.DatabaseConfig
 import org.jetbrains.exposed.sql.SchemaUtils
@@ -39,11 +40,14 @@ class ProjectSession private constructor(
          * Must not be called while another session on the same folder is open.
          */
         fun open(projectDir: File): ProjectSession {
-            val db = SqliteDatabases.open(ProjectDatabaseFiles.consolidate(projectDir))
+            val dbFile = ProjectDatabaseFiles.consolidate(projectDir)
+            val db = SqliteDatabases.open(dbFile)
             try {
                 transaction(db) {
-                    SchemaUtils.create(GeoDataTable, AuditLogs, DynamicAssetsTable)
+                    SchemaUtils.create(AssetsTable, AssetImagesTable, AuditLogs)
                 }
+                // Converts pre-v3 projects (geo_data + image BLOBs) on first open.
+                ProjectMigrator.migrate(db, dbFile, projectDir)
             } catch (e: Exception) {
                 SqliteDatabases.closeQuietly(db)
                 throw e

@@ -5,9 +5,10 @@ import com.geospatial.processing.auth.LicenseGate
 import com.geospatial.processing.core.plugin.DomainPlugin
 import com.geospatial.processing.core.plugin.telecom.TelecomPlugin
 import com.geospatial.processing.data.database.ProjectSession
-import com.geospatial.processing.data.repository.GeoRepository
-import com.geospatial.processing.domain.usecase.CsvImportService
-import com.geospatial.processing.domain.usecase.PdfGenerationService
+import com.geospatial.processing.data.images.ImageStore
+import com.geospatial.processing.data.repository.AssetRepository
+import com.geospatial.processing.domain.model.AssetImageResolver
+import com.geospatial.processing.utils.ProjectManager
 import com.geospatial.processing.ui.WorkbenchViewModel
 import com.geospatial.processing.ui.navigation.AppNavigator
 import com.geospatial.processing.ui.navigation.AppViewModel
@@ -38,10 +39,17 @@ val appModule = module {
 /** Everything that belongs to one open project; created and closed with the project (see [KoinProjectOpener]). */
 val projectModule = module {
     scope(PROJECT_SCOPE) {
-        scoped { GeoRepository(get<ProjectSession>().database) }
-        scoped { CsvImportService(get()) }
-        scoped { PdfGenerationService(get()) }
-        viewModel { WorkbenchViewModel(get(), get(), get()) }
+        scoped { AssetRepository(get<ProjectSession>().database) }
+        scoped { ImageStore(get<ProjectSession>().projectDir) }
+        // The industry plugin named in the project's project.json.
+        scoped<DomainPlugin> {
+            val projectDir = get<ProjectSession>().projectDir
+            val pluginId = ProjectManager.readProjectConfig(projectDir)?.pluginId
+            get<List<DomainPlugin>>().firstOrNull { it.pluginId == pluginId }
+                ?: error("Plugin '$pluginId' used by ${projectDir.name} is not installed")
+        }
+        scoped { AssetImageResolver(get(), get<ProjectSession>().projectDir) }
+        viewModel { WorkbenchViewModel(get(), get(), get(), get()) }
     }
 }
 
