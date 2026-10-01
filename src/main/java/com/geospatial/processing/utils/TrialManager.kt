@@ -1,63 +1,80 @@
 package com.geospatial.processing.utils
 
-
+import com.geospatial.processing.auth.AppSecurity
+import com.geospatial.processing.auth.ClockGuard
+import com.geospatial.processing.auth.SecureStateStore
 import java.time.Instant
-import java.time.temporal.ChronoUnit
 import java.util.prefs.Preferences
 
-object TrialManager {
-    // This creates a hidden registry key specific to your app
-    private val prefs = Preferences.userRoot().node("com.geospatial.processing.trial")
-    private const val FIRST_LAUNCH_KEY = "first_launch_timestamp"
+/**
+ * 15-day offline trial.
+ *
+ * Changes from the original:
+ *  - Trial start is HMAC-signed and stored in two locations (registry + app data file);
+ *    deleting one is repaired from the other, editing either one ends the trial.
+ *  - Clock rollback (beyond a 36h tolerance) ends the trial.
+ *  - Existing users keep their original start date (read once from the old registry key).
+ *  - `resetTrialForTesting()` is gone – shipping a reset function in production is a bypass.
+ *    For testing, delete %LOCALAPPDATA%\GeoFlux\state.dat and the registry node by hand.
+ */
+class TrialPolicy(
+    private val store: SecureStateStore,
+    private val clock: ClockGuard,
+    private val legacyStartMillis: () -> Long? = { null },
+    private val now: () -> Long = System::currentTimeMillis,
+    private val trialDays: Long = 15,
+) {
+    private companion object {
+        const val KEY_TRIAL_START = "trial_start"
+        const val DAY_MS = 24L * 60 * 60 * 1000
+    }
 
-
-// TRIAL 15 DAY PERIOD
-    private const val TRIAL_DAYS = 15
-
-    /**
-     * Checks if the 15-day offline trial has expired.
-     */
     fun isTrialExpired(): Boolean {
-        val firstLaunchStr = prefs.get(FIRST_LAUNCH_KEY, null)
+        if (clock.checkAndRecord()) return true
 
-        if (firstLaunchStr == null) {
-            // BOOM. First time opening the app. Plant the time bomb.
-            prefs.put(FIRST_LAUNCH_KEY, Instant.now().toString())
-            return false // Trial just started, let them in.
-        }
+        val read = store.read(KEY_TRIAL_START)
+        if (read.tampered) return true
 
-        return try {
-            val firstLaunchTime = Instant.parse(firstLaunchStr)
-            val daysElapsed = ChronoUnit.DAYS.between(firstLaunchTime, Instant.now())
-
-            // If they change their PC clock backward to cheat, daysElapsed might be negative.
-            // We lock them out if daysElapsed >= 15 OR if it's less than 0 (time travel tampering).
-            daysElapsed >= TRIAL_DAYS || daysElapsed < 0
-        } catch (e: Exception) {
-            // If they try to manually hack the registry string and break it, lock the app.
-            true
-        }
+        val start = startMillis(read) ?: return true
+        val elapsedDays = (clock.trustedNowMillis() - start) / DAY_MS
+        return elapsedDays >= trialDays || elapsedDays < 0
     }
 
-    /**
-     * Gives you (the developer) a way to see how many days are left.
-     */
     fun getDaysRemaining(): Long {
-        val firstLaunchStr = prefs.get(FIRST_LAUNCH_KEY, null) ?: return TRIAL_DAYS.toLong()
-        return try {
-            val firstLaunchTime = Instant.parse(firstLaunchStr)
-            val daysElapsed = ChronoUnit.DAYS.between(firstLaunchTime, Instant.now())
-            val remaining = TRIAL_DAYS - daysElapsed
-            if (remaining < 0) 0 else remaining
-        } catch (e: Exception) {
-            0
-        }
+        val read = store.read(KEY_TRIAL_START)
+        if (read.tampered) return 0
+        val start = read.values.minOrNull() ?: legacyStartMillis() ?: return trialDays
+        val elapsedDays = (clock.trustedNowMillis() - start) / DAY_MS
+        return (trialDays - elapsedDays).coerceIn(0, trialDays)
     }
 
-    /**
-     * Use this ONLY for your own testing to reset the bomb.
-     */
-    fun resetTrialForTesting() {
-        prefs.remove(FIRST_LAUNCH_KEY)
+    /** Earliest known start; plants the trial on first launch and re-plants any deleted copy. */
+    private fun startMillis(read: SecureStateStore.Read): Long? {
+        val candidates = read.values + listOfNotNull(legacyStartMillis())
+        val start = candidates.minOrNull() ?: now()
+        store.write(KEY_TRIAL_START, start)
+        return start
+    }
+}
+
+object TrialManager {
+    private val policy by lazy {
+        TrialPolicy(
+            store = AppSecurity.store,
+            clock = ClockGuard.default,
+            legacyStartMillis = ::readLegacyStart,
+        )
+    }
+
+    fun isTrialExpired(): Boolean = policy.isTrialExpired()
+    fun getDaysRemaining(): Long = policy.getDaysRemaining()
+
+    /** v1 stored an unsigned ISO timestamp here. Read-only: used so existing trials are not reset. */
+    private fun readLegacyStart(): Long? = try {
+        Preferences.userRoot().node("com.geospatial.processing.trial")
+            .get("first_launch_timestamp", null)
+            ?.let { Instant.parse(it).toEpochMilli() }
+    } catch (e: Exception) {
+        null
     }
 }

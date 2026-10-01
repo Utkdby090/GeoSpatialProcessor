@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.geospatial.processing.utils.FileUtils
+import com.geospatial.processing.utils.ProjectArchiver
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -100,6 +101,9 @@ fun ProjectDashboardUI(
     var projectToDelete by remember { mutableStateOf<File?>(null) }
     var refreshTrigger by remember { mutableStateOf(0) }
 
+    // Result/error notice for import & export (title to message)
+    var notice by remember { mutableStateOf<Pair<String, String>?>(null) }
+
     val projects = remember(workspaceDir, refreshTrigger) {
         // THE LOGIC UPDATE: Ignore anything starting with a dot to hide "Soft Deleted" folders
         workspaceDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }
@@ -142,11 +146,14 @@ fun ProjectDashboardUI(
                             onClick = {
                                 val chooser = javax.swing.JFileChooser().apply { dialogTitle = "Import .geox Project" }
                                 if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
-                                    val importedFolder = com.geospatial.processing.utils.ProjectArchiver.importProject(
-                                        chooser.selectedFile,
-                                        workspaceDir
-                                    )
-                                    if (importedFolder != null) onOpenProject(importedFolder)
+                                    when (val result = ProjectArchiver.importProject(chooser.selectedFile, workspaceDir)) {
+                                        is ProjectArchiver.ImportResult.Success -> {
+                                            refreshTrigger++
+                                            onOpenProject(result.projectDir)
+                                        }
+                                        is ProjectArchiver.ImportResult.Failure ->
+                                            notice = "Import failed" to result.reason
+                                    }
                                 }
                             },
                             colors = ButtonDefaults.outlinedButtonColors(
@@ -204,7 +211,12 @@ fun ProjectDashboardUI(
                                 sdf = sdf,
                                 onOpenProject = onOpenProject,
                                 onEditProject = { file -> projectToModify = file },
-                                onDeleteProject = { file -> projectToDelete = file }
+                                onDeleteProject = { file -> projectToDelete = file },
+                                onExportFinished = { success, destination ->
+                                    notice = if (success) "Export complete" to "Project saved to:\n${destination.absolutePath}"
+                                             else "Export failed" to "The project could not be exported to ${destination.absolutePath}. " +
+                                                 "Check that the location is writable and has enough free space."
+                                }
                             )
                         }
                     }
@@ -246,6 +258,10 @@ fun ProjectDashboardUI(
                     refreshTrigger++
                 }
             )
+        }
+
+        notice?.let { (title, message) ->
+            NoticeDialog(title = title, message = message, onDismiss = { notice = null })
         }
 
         if (projectToModify != null) {
@@ -300,7 +316,8 @@ private fun ProjectRowWithContextMenu(
     sdf: SimpleDateFormat,
     onOpenProject: (File) -> Unit,
     onEditProject: (File) -> Unit,
-    onDeleteProject: (File) -> Unit
+    onDeleteProject: (File) -> Unit,
+    onExportFinished: (success: Boolean, destination: File) -> Unit
 ) {
     var isContextMenuVisible by remember { mutableStateOf(false) }
 
@@ -345,10 +362,12 @@ private fun ProjectRowWithContextMenu(
                     selectedFile = File("${projectFile.name}.geox")
                 }
                 if (chooser.showSaveDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
-                    com.geospatial.processing.utils.ProjectArchiver.exportProject(
-                        projectFile,
-                        chooser.selectedFile
-                    )
+                    // Always save with the .geox extension, even if the user didn't type it.
+                    val chosen = chooser.selectedFile
+                    val destination = if (chosen.extension.equals("geox", ignoreCase = true)) chosen
+                                      else File(chosen.parentFile, chosen.name + ".geox")
+                    val ok = ProjectArchiver.exportProject(projectFile, destination)
+                    onExportFinished(ok, destination)
                 }
             }) {
                 Icon(Icons.Default.Share, contentDescription = "Export Project", tint = Color.Gray)
@@ -566,6 +585,42 @@ fun DeleteProjectDialog(
                     ) {
                         Text(if (moveToTrash) "Delete to Trash" else "Remove from List")
                     }
+                }
+            }
+        }
+    }
+}
+
+// Simple result/error notice, styled to match the other dashboard dialogs
+@Composable
+private fun NoticeDialog(
+    title: String,
+    message: String,
+    onDismiss: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f))
+            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {},
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier.width(450.dp),
+            shape = RoundedCornerShape(8.dp),
+            backgroundColor = Color(0xFF2B2D30),
+            elevation = 24.dp
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(message, color = Color.LightGray, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Button(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary, contentColor = Color.White)
+                    ) { Text("OK") }
                 }
             }
         }

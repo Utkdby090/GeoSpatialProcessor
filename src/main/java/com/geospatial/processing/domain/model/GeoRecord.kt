@@ -1,6 +1,7 @@
 package com.geospatial.processing.domain.model
 
-import java.io.File
+import com.geospatial.processing.domain.imaging.ImageSlot
+import com.geospatial.processing.domain.imaging.TowerImageResolver
 
 enum class RecordStatus {
     DRAFT,      // Missing data or images (Orange Icon)
@@ -100,87 +101,38 @@ data class GeoRecord(
         }
 
 
-    // 1. THERMAL IMAGE (Top Right)
-    fun resolveThermalImage(rootDir: String): ImageSource {
-        if (thermalImage != null) {
-            if (thermalImage.isEmpty()) return ImageSource.Missing
-            return ImageSource.FromBlob(thermalImage)
-        }
-        val folder = File(rootDir, towerNumber)
-        if (!folder.exists() || !folder.isDirectory) return ImageSource.Missing
+    /**
+     * Resolves all four report images with ONE folder scan (see TowerImageResolver).
+     * Manual uploads (DB blobs) take priority; an empty blob means "user cleared this slot".
+     */
+    fun resolveAllImages(rootDir: String): Map<ImageSlot, ImageSource> {
+        val folderMatches by lazy { TowerImageResolver.resolve(rootDir, towerNumber, reportType) }
 
-        // Looks specifically for "Thermal" or "IR"
-        val file = folder.listFiles()?.firstOrNull {
-            val name = it.name.lowercase()
-            (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png")) &&
-                    (name.contains("thermal") || name.contains("ir"))
+        fun pick(blob: ByteArray?, slot: ImageSlot): ImageSource = when {
+            blob != null && blob.isEmpty() -> ImageSource.Missing
+            blob != null -> ImageSource.FromBlob(blob)
+            else -> folderMatches[slot]?.let { ImageSource.FromFile(it) } ?: ImageSource.Missing
         }
-        return if (file != null) ImageSource.FromFile(file) else ImageSource.Missing
+
+        return mapOf(
+            ImageSlot.THERMAL to pick(thermalImage, ImageSlot.THERMAL),       // top right
+            ImageSlot.RGB_ZOOM to pick(extraImage, ImageSlot.RGB_ZOOM),       // bottom right
+            ImageSlot.STRUCTURE to pick(towerImage, ImageSlot.STRUCTURE),     // bottom left
+            ImageSlot.LOCATION to pick(visualImage, ImageSlot.LOCATION),      // top left
+        )
     }
+
+    // Kept for existing callers (DetailView, PdfGenerationService). Same slots as before.
+
+    // 1. THERMAL IMAGE (Top Right)
+    fun resolveThermalImage(rootDir: String): ImageSource = resolveAllImages(rootDir).getValue(ImageSlot.THERMAL)
 
     // 2. RGB / ZOOM IMAGE (Bottom Right)
-    fun resolveExtraImage(rootDir: String): ImageSource {
-        if (extraImage != null) {
-            if (extraImage.isEmpty()) return ImageSource.Missing
-            return ImageSource.FromBlob(extraImage)
-        }
-        val folder = File(rootDir, towerNumber)
-        if (!folder.exists() || !folder.isDirectory) return ImageSource.Missing
-
-        // Looks specifically for "Zoom", "Visual", or "RGB", but strictly IGNORES "Thermal"
-        val file = folder.listFiles()?.firstOrNull {
-            val name = it.name.lowercase()
-            (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png")) &&
-                    !name.contains("thermal") && !name.contains("ir") &&
-                    (name.contains("zoom") || name.contains("rgb") || name.contains("visual") || name.contains("supp"))
-        }
-        return if (file != null) ImageSource.FromFile(file) else ImageSource.Missing
-    }
-
+    fun resolveExtraImage(rootDir: String): ImageSource = resolveAllImages(rootDir).getValue(ImageSlot.RGB_ZOOM)
 
     // 3. TOWER / SPAN / SLEEVE IMAGE (Bottom Left)
-    fun resolveTowerImage(rootDir: String): ImageSource {
-        if (towerImage != null) {
-            if (towerImage.isEmpty()) return ImageSource.Missing
-            return ImageSource.FromBlob(towerImage)
-        }
-        val folder = File(rootDir, towerNumber)
-        if (!folder.exists() || !folder.isDirectory) return ImageSource.Missing
-
-        val type = reportType.lowercase()
-        val isMidSpan = type.contains("midspan") || type.contains("mid_span")
-        val isSleeve = type.contains("sleeve") || type.contains("repair_sleeve")
-        val isEarthWire = type.contains("earth") || type.contains("wire")
-        // Dynamically looks for "Span", "Sleeve", or "Tower"
-        val file = folder.listFiles()?.firstOrNull {
-            val name = it.name.lowercase()
-            (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png")) &&
-                    !name.contains("thermal") && !name.contains("ir") && !name.contains("zoom") &&
-                    when {
-                        isMidSpan -> name.contains("span") || name.contains("mid")
-                        isSleeve -> name.contains("sleeve") || name.contains("repair")
-                        isEarthWire -> name.contains("earth") || name.contains("wire") || name.contains("joint") || name.contains("span") || name.contains("mid") || name.contains("sleeve") || name.contains("repair")
-                        else -> name.contains("tower") || name.contains("wide") || name.contains("structure")
-                    }
-        }
-        return if (file != null) ImageSource.FromFile(file) else ImageSource.Missing
-    }
+    fun resolveTowerImage(rootDir: String): ImageSource = resolveAllImages(rootDir).getValue(ImageSlot.STRUCTURE)
 
     // 4. EXTRA / VISUAL SLOT (Top Left - Usually mapped to Location Map)
-    fun resolveVisualImage(rootDir: String): ImageSource {
-        if (visualImage != null) {
-            if (visualImage.isEmpty()) return ImageSource.Missing
-            return ImageSource.FromBlob(visualImage)
-        }
-        val folder = File(rootDir, towerNumber)
-        if (!folder.exists() || !folder.isDirectory) return ImageSource.Missing
-
-        // Grabs whatever is left that isn't Thermal, Zoom, or Tower/Span
-        val file = folder.listFiles()?.firstOrNull {
-            val name = it.name.lowercase()
-            (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png")) &&
-                    !name.contains("thermal") && !name.contains("zoom") && !name.contains("tower") && !name.contains("span") && !name.contains("ir")
-        }
-        return if (file != null) ImageSource.FromFile(file) else ImageSource.Missing
-    }
-}
+    fun resolveVisualImage(rootDir: String): ImageSource = resolveAllImages(rootDir).getValue(ImageSlot.LOCATION)
+}

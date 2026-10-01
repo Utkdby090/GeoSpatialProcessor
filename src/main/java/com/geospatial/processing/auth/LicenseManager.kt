@@ -1,6 +1,5 @@
 package com.geospatial.processing.auth
 
-import com.geospatial.processing.utils.HardwareUtil
 import java.security.KeyFactory
 import java.security.Signature
 import java.time.LocalDate
@@ -59,14 +58,16 @@ object LicenseManager {
             val expirationDateStr = payloadParts[1]
 
             // 4. Hardware Check
-            if (licenseMachineId != HardwareUtil.getMachineId()) {
+            // Cached once per run: HardwareUtil launches PowerShell on every call.
+            if (licenseMachineId != AppSecurity.machineId) {
                 return LicenseStatus.InvalidMachine
             }
 
             // 5. Expiration Date Check
             try {
                 val expiryDate = LocalDate.parse(expirationDateStr)
-                if (LocalDate.now().isAfter(expiryDate)) {
+                // Trusted date = max(system clock, latest time ever seen) – defeats clock rollback.
+                if (ClockGuard.default.trustedToday().isAfter(expiryDate)) {
                     return LicenseStatus.Expired
                 }
             } catch (e: Exception) {
@@ -100,7 +101,7 @@ object LicenseManager {
             val expiryDate = LocalDate.parse(expirationDateStr)
 
             // Calculate days between today and the expiry date
-            val daysLeft = ChronoUnit.DAYS.between(LocalDate.now(), expiryDate)
+            val daysLeft = ChronoUnit.DAYS.between(ClockGuard.default.trustedToday(), expiryDate)
 
             // Return days left, but don't drop below 0
             if (daysLeft < 0) 0 else daysLeft
@@ -108,4 +109,4 @@ object LicenseManager {
             0
         }
     }
-}
+}
