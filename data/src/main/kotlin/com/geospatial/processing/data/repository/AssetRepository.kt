@@ -6,6 +6,7 @@ import com.geospatial.processing.data.table.AuditLogs
 import com.geospatial.processing.domain.model.Asset
 import com.geospatial.processing.domain.model.AssetImage
 import com.geospatial.processing.domain.model.RecordStatus
+import com.geospatial.processing.domain.model.Severity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -81,6 +82,7 @@ internal object AssetRows {
         properties = json.decodeFromString<Map<String, String>>(row[AssetsTable.propertiesJson]),
         images = images,
         capturedAt = row[AssetsTable.capturedAt]?.let(Instant::ofEpochMilli),
+        severity = Severity.fromName(row[AssetsTable.severity]),
     )
 
     /** Must run inside a transaction. */
@@ -95,6 +97,7 @@ internal object AssetRows {
             it[longitude] = asset.longitude
             it[propertiesJson] = json.encodeToString(asset.properties)
             it[capturedAt] = asset.capturedAt?.toEpochMilli()
+            it[severity] = asset.severity.name
             it[updatedAt] = now
         }
         AssetImagesTable.deleteWhere { assetId eq asset.id }

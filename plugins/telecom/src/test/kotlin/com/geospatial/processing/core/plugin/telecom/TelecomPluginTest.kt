@@ -6,6 +6,7 @@ import com.geospatial.processing.domain.thermal.Pixel
 import com.geospatial.processing.core.plugin.CoreFields
 import com.geospatial.processing.core.plugin.telecom.TelecomKeys as K
 import com.geospatial.processing.domain.model.Asset
+import com.geospatial.processing.domain.model.Severity
 import com.lowagie.text.pdf.PdfReader
 import com.lowagie.text.pdf.parser.PdfTextExtractor
 import java.io.ByteArrayOutputStream
@@ -13,6 +14,7 @@ import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -174,5 +176,48 @@ class TelecomPluginTest {
         )
         // Without a usable ambient temperature there is no rise to report.
         assertEquals(mapOf(K.FAULT_TEMP to "78.5"), plugin.thermalFindings(stats, emptyMap()))
+    }
+
+    // --- severity ---------------------------------------------------------------------------------
+
+    private fun severityOf(vararg props: Pair<String, String>) = plugin.classify(asset(*props))
+
+    @Test
+    fun `severity follows the temperature rise at each threshold`() {
+        assertEquals(Severity.NONE, severityOf(K.RISE_TEMP to "0.9"))
+        assertEquals(Severity.LOW, severityOf(K.RISE_TEMP to "1"))
+        assertEquals(Severity.LOW, severityOf(K.RISE_TEMP to "3.9"))
+        assertEquals(Severity.MEDIUM, severityOf(K.RISE_TEMP to "4"))
+        assertEquals(Severity.HIGH, severityOf(K.RISE_TEMP to "16"))
+        assertEquals(Severity.CRITICAL, severityOf(K.RISE_TEMP to "40"))
+        assertEquals(Severity.CRITICAL, severityOf(K.RISE_TEMP to "75,5"))
+        assertEquals(Severity.NONE, severityOf(K.RISE_TEMP to "-3"))
+    }
+
+    @Test
+    fun `without a rise it is worked out from fault and ambient temperature`() {
+        assertEquals(Severity.HIGH, severityOf(K.FAULT_TEMP to "60", K.AMBIENT_TEMP to "40"))
+        // The rise field wins when both are present.
+        assertEquals(Severity.LOW, severityOf(K.RISE_TEMP to "2", K.FAULT_TEMP to "90", K.AMBIENT_TEMP to "30"))
+    }
+
+    @Test
+    fun `no usable temperatures means none for a normal report and medium for a fault`() {
+        assertEquals(Severity.NONE, severityOf())
+        assertEquals(Severity.NONE, severityOf(K.RISE_TEMP to "n/a", K.FAULT_TEMP to "60"))
+        assertEquals(Severity.MEDIUM, severityOf(K.FAULT_STATUS to "Fault", K.REPORT_TYPE to "tower_fault"))
+    }
+
+    @Test
+    fun `a report marked as fault is at least low even when the rise is tiny`() {
+        assertEquals(Severity.LOW, severityOf(K.FAULT_STATUS to "Fault", K.REPORT_TYPE to "tower_fault", K.RISE_TEMP to "0.2"))
+    }
+
+    @Test
+    fun `thresholds can be tuned and must be ordered`() {
+        val strict = TelecomPlugin(SeverityThresholds(low = 0.5, medium = 2.0, high = 5.0, critical = 10.0))
+
+        assertEquals(Severity.CRITICAL, strict.classify(asset(K.RISE_TEMP to "10")))
+        assertFailsWith<IllegalArgumentException> { SeverityThresholds(low = 5.0, medium = 2.0) }
     }
 }

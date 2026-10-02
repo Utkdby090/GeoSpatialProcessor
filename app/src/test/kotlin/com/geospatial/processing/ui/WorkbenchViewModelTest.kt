@@ -8,6 +8,7 @@ import com.geospatial.processing.data.repository.AssetRepository
 import com.geospatial.processing.domain.model.AssetImage
 import com.geospatial.processing.domain.model.AssetImageResolver
 import com.geospatial.processing.domain.model.RecordStatus
+import com.geospatial.processing.domain.model.Severity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
@@ -216,5 +217,78 @@ class WorkbenchViewModelTest {
         assertFalse(vm.state.value.isDarkTheme)
         vm.onAction(WorkbenchAction.ToggleTheme)
         assertTrue(vm.state.value.isDarkTheme)
+    }
+
+    // --- severity -----------------------------------------------------------------------------------
+
+    private fun rate(tower: String, rise: String) = runBlocking {
+        val asset = vm.state.value.records.first { it.property(K.TOWER_NUMBER) == tower }
+        vm.save(asset.copy(properties = asset.properties + (K.RISE_TEMP to rise))).join()
+    }
+
+    @Test
+    fun `saving classifies the asset and stores the severity`() = runBlocking {
+        importTowers("VMT-1")
+
+        rate("VMT-1", "20")
+
+        assertEquals(Severity.HIGH, vm.state.value.records.single().severity)
+        assertEquals(Severity.HIGH, repository.getAll().single().severity)
+    }
+
+    @Test
+    fun `a CSV with fault temperatures is classified on import`() = runBlocking {
+        val file = File(root, "faults.csv").apply {
+            writeText("Tower No.,Line Name,CKT,Lat.,Long.,Ambeint Temp.,Fault Temp.\nVMT-1,Line A,1,12.5,77.5,30,75\nVMT-2,Line A,1,12.5,77.5,30,\n")
+        }
+
+        vm.importCsv(file).join()
+
+        assertEquals(listOf(Severity.CRITICAL, Severity.NONE), repository.getAll().map { it.severity })
+    }
+
+    @Test
+    fun `an out-of-date stored severity is corrected when the project loads`() = runBlocking {
+        importTowers("VMT-1")
+        val asset = repository.getAll().single()
+        repository.save(asset.copy(properties = asset.properties + (K.RISE_TEMP to "5"), severity = Severity.NONE))
+
+        vm.refresh().join()
+
+        assertEquals(Severity.MEDIUM, vm.state.value.records.single().severity)
+        assertEquals(Severity.MEDIUM, repository.getAll().single().severity)
+    }
+
+    @Test
+    fun `the severity filter hides milder towers but not their neighbours in the sequence`() = runBlocking {
+        importTowers("VMT-1", "VMT-2", "VMT-3")
+        rate("VMT-1", "2")    // LOW
+        rate("VMT-2", "50")   // CRITICAL
+        rate("VMT-3", "8")    // MEDIUM
+
+        vm.onAction(WorkbenchAction.SetMinSeverity(Severity.MEDIUM))
+        assertEquals(listOf("VMT-2", "VMT-3"), vm.state.value.displayedRecords.map { it.property(K.TOWER_NUMBER) })
+
+        // VMT-3 is selected; its previous tower is still VMT-2 and the filtered-out VMT-1 stays reachable by id.
+        vm.onAction(WorkbenchAction.Select(vm.state.value.records[2]))
+        assertEquals("VMT-2", vm.state.value.previousRecord?.property(K.TOWER_NUMBER))
+        vm.onAction(WorkbenchAction.Select(vm.state.value.records[0]))
+        assertEquals("VMT-1", vm.state.value.selectedRecord?.property(K.TOWER_NUMBER))
+        assertEquals("VMT-2", vm.state.value.nextRecord?.property(K.TOWER_NUMBER))
+
+        vm.onAction(WorkbenchAction.SetMinSeverity(Severity.NONE))
+        assertEquals(3, vm.state.value.displayedRecords.size)
+    }
+
+    @Test
+    fun `sorting by severity puts the worst first and keeps the original order for ties`() = runBlocking {
+        importTowers("VMT-1", "VMT-2", "VMT-3", "VMT-4")
+        rate("VMT-2", "50")   // CRITICAL
+        rate("VMT-4", "2")    // LOW
+        rate("VMT-3", "2")    // LOW
+
+        vm.onAction(WorkbenchAction.ToggleSeveritySort)
+
+        assertEquals(listOf("VMT-2", "VMT-3", "VMT-4", "VMT-1"), vm.state.value.displayedRecords.map { it.property(K.TOWER_NUMBER) })
     }
 }

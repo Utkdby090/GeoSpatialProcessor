@@ -11,6 +11,7 @@ import com.geospatial.processing.domain.model.AssetImage
 import com.geospatial.processing.domain.model.AssetImageResolver
 import com.geospatial.processing.domain.model.ImageSource
 import com.geospatial.processing.domain.model.RecordStatus
+import com.geospatial.processing.domain.model.Severity
 import com.geospatial.processing.domain.report.BulkReportExporter
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -39,13 +40,23 @@ data class WorkbenchUiState(
     /** Non-null while a PDF export runs (and briefly afterwards, to show the result). */
     val exportProgress: ProgressState? = null,
     val showImportSuccess: Boolean = false,
+    /** The list shows only assets at least this severe; [Severity.NONE] shows everything. */
+    val minSeverity: Severity = Severity.NONE,
+    /** Most severe first in the list (ties keep the import/sort order). */
+    val sortBySeverity: Boolean = false,
 ) {
-    val displayedRecords: List<Asset> get() = if (sortAscending) records else records.reversed()
+    /** All records in import order (or reversed). Neighbours come from here, so a filter never changes who is next to a tower. */
+    private val orderedRecords: List<Asset> get() = if (sortAscending) records else records.reversed()
 
-    private val selectedIndex: Int? get() = displayedRecords.indexOfFirst { it.id == selectedRecordId }.takeIf { it >= 0 }
-    val selectedRecord: Asset? get() = selectedIndex?.let { displayedRecords[it] }
-    val previousRecord: Asset? get() = selectedIndex?.let { displayedRecords.getOrNull(it - 1) }
-    val nextRecord: Asset? get() = selectedIndex?.let { displayedRecords.getOrNull(it + 1) }
+    /** What the list shows: [orderedRecords] narrowed by [minSeverity] and optionally sorted by severity. */
+    val displayedRecords: List<Asset> get() = orderedRecords
+        .filter { it.severity >= minSeverity }
+        .let { list -> if (sortBySeverity) list.sortedByDescending { it.severity } else list }
+
+    private val selectedIndex: Int? get() = orderedRecords.indexOfFirst { it.id == selectedRecordId }.takeIf { it >= 0 }
+    val selectedRecord: Asset? get() = selectedIndex?.let { orderedRecords[it] }
+    val previousRecord: Asset? get() = selectedIndex?.let { orderedRecords.getOrNull(it - 1) }
+    val nextRecord: Asset? get() = selectedIndex?.let { orderedRecords.getOrNull(it + 1) }
 
     companion object {
         const val DEFAULT_ROOT_IMAGE_DIRECTORY = "C:\\Tower_images"
@@ -73,6 +84,8 @@ sealed interface WorkbenchAction {
     data class Save(val record: Asset, val imageEdits: Map<String, ImageEdit> = emptyMap()) : WorkbenchAction
     data object Refresh : WorkbenchAction
     data object ToggleSort : WorkbenchAction
+    data class SetMinSeverity(val min: Severity) : WorkbenchAction
+    data object ToggleSeveritySort : WorkbenchAction
     data object ToggleTheme : WorkbenchAction
     data object DismissImportSuccess : WorkbenchAction
 }
@@ -109,15 +122,26 @@ class WorkbenchViewModel(
             is WorkbenchAction.Save -> save(action.record, action.imageEdits)
             WorkbenchAction.Refresh -> refresh()
             WorkbenchAction.ToggleSort -> _state.update { it.copy(sortAscending = !it.sortAscending) }
+            is WorkbenchAction.SetMinSeverity -> _state.update { it.copy(minSeverity = action.min) }
+            WorkbenchAction.ToggleSeveritySort -> _state.update { it.copy(sortBySeverity = !it.sortBySeverity) }
             WorkbenchAction.ToggleTheme -> _state.update { it.copy(isDarkTheme = !it.isDarkTheme) }
             WorkbenchAction.DismissImportSuccess -> _state.update { it.copy(showImportSuccess = false) }
         }
     }
 
     fun refresh(): Job = viewModelScope.launch {
-        val records = repository.getAll()
+        val records = loadRecords()
         _state.update { it.copy(records = records) }
     }
+
+    /** All records with up-to-date severity; a stored severity that is out of date (old project, changed rules) is corrected in the database. */
+    private suspend fun loadRecords(): List<Asset> {
+        val stored = repository.getAll()
+        return stored.map { old -> classified(old).also { if (it != old) repository.save(it) } }
+    }
+
+    /** [asset] with its severity worked out by the plugin. */
+    private fun classified(asset: Asset): Asset = plugin.classify(asset).let { if (it == asset.severity) asset else asset.copy(severity = it) }
 
     /** CSV rows into the database (first half of the progress bar), then an image check per asset (second half). */
     fun importCsv(file: File): Job = viewModelScope.launch {
@@ -142,12 +166,13 @@ class WorkbenchViewModel(
                 val files = imageResolver.resolve(asset, rootDir).values.filterIsInstance<ImageSource.FromFile>().map { it.file }
                 val enriched = ImageIngestor.enrich(asset, ImageIngestor.read(files))
                 val newStatus = if (imageResolver.isReady(asset, rootDir)) RecordStatus.READY else RecordStatus.DRAFT
-                if (enriched != asset || asset.status != newStatus) repository.save(enriched.copy(status = newStatus))
+                val updated = classified(enriched.copy(status = newStatus))
+                if (updated != asset) repository.save(updated)
                 setImport("Scanning Local Folders for Images...", 0.5f + ((index + 1).toFloat() / all.size) * 0.5f)
             }
         }
 
-        val records = repository.getAll()
+        val records = loadRecords()
         _state.update { it.copy(records = records, importProgress = null, showImportSuccess = true) }
     }
 
@@ -174,7 +199,7 @@ class WorkbenchViewModel(
     fun delete(record: Asset): Job = viewModelScope.launch {
         repository.delete(record.id, plugin.present(record).listTitle)
         withContext(io) { imageStore.deleteAsset(record.id) }
-        val records = repository.getAll()
+        val records = loadRecords()
         _state.update {
             it.copy(records = records, selectedRecordId = it.selectedRecordId.takeUnless { id -> id == record.id })
         }
@@ -208,9 +233,9 @@ class WorkbenchViewModel(
                 }
             }
         }
-        repository.save(record.copy(images = images))
+        repository.save(classified(record.copy(images = images)))
         withContext(io) { obsolete.forEach(imageStore::delete) }
-        val records = repository.getAll()
+        val records = loadRecords()
         _state.update { it.copy(records = records) }
     }
 
