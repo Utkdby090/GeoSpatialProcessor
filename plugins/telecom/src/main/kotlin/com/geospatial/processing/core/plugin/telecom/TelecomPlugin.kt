@@ -5,7 +5,10 @@ import com.geospatial.processing.core.plugin.telecom.TelecomKeys as K
 import com.geospatial.processing.domain.imaging.ImageSlot
 import com.geospatial.processing.domain.imaging.TowerImageResolver
 import com.geospatial.processing.domain.model.Asset
+import com.geospatial.processing.domain.thermal.ThermalOverrides
+import com.geospatial.processing.domain.thermal.ThermalStats
 import java.io.File
+import java.util.Locale
 
 /** Electric grid / transmission line inspection: towers, mid-spans, repair sleeves and earth-wire joints. */
 class TelecomPlugin : DomainPlugin {
@@ -51,7 +54,7 @@ class TelecomPlugin : DomainPlugin {
         val kind = ReportKind.of(asset)
         return listOf(
             ImageSlotDef(K.SLOT_LOCATION, "Location"),
-            ImageSlotDef(K.SLOT_THERMAL, if (kind == ReportKind.MID_SPAN) "THERMAL Image" else "Thermal Image"),
+            ImageSlotDef(K.SLOT_THERMAL, if (kind == ReportKind.MID_SPAN) "THERMAL Image" else "Thermal Image", isThermal = true),
             ImageSlotDef(K.SLOT_STRUCTURE, kind.structureLabel),
             ImageSlotDef(K.SLOT_RGB_ZOOM, "RGB Image"),
         )
@@ -69,6 +72,26 @@ class TelecomPlugin : DomainPlugin {
             showsSequenceNavigator = ReportKind.of(asset) == ReportKind.TOWER,
         )
     }
+
+    /** Emissivity, ambient temperature (also used as the reflected temperature) and humidity typed into the form. */
+    override fun thermalOverrides(properties: Map<String, String>): ThermalOverrides {
+        val ambient = number(properties[K.AMBIENT_TEMP])
+        return ThermalOverrides(
+            emissivity = number(properties[K.EMISSIVITY])?.takeIf { it > 0.0 && it <= 1.0 },
+            atmosphericTempC = ambient,
+            reflectedTempC = ambient,
+            humidityPct = number(properties[K.HUMIDITY])?.takeIf { it in 0.0..100.0 },
+        )
+    }
+
+    /** The hottest reading is the fault temperature; its rise is measured against the ambient temperature. */
+    override fun thermalFindings(stats: ThermalStats, properties: Map<String, String>): Map<String, String> {
+        val findings = linkedMapOf(K.FAULT_TEMP to "%.1f".format(Locale.ROOT, stats.max))
+        number(properties[K.AMBIENT_TEMP])?.let { findings[K.RISE_TEMP] = "%.1f".format(Locale.ROOT, stats.max - it) }
+        return findings
+    }
+
+    private fun number(text: String?): Double? = text?.trim()?.replace(',', '.')?.toDoubleOrNull()
 
     override fun resolveFolderImages(rootDir: String, asset: Asset): Map<String, File> =
         TowerImageResolver.resolve(rootDir, asset.property(K.TOWER_NUMBER), reportType(asset))
