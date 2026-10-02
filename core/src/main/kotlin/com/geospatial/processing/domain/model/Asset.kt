@@ -1,5 +1,6 @@
 package com.geospatial.processing.domain.model
 
+import java.time.Instant
 import java.util.UUID
 
 enum class RecordStatus {
@@ -25,6 +26,8 @@ data class Asset(
     val properties: Map<String, String> = emptyMap(),
     /** Manual image choices per slot id. A slot without an entry falls back to the image folder. */
     val images: Map<String, AssetImage> = emptyMap(),
+    /** When the earliest image of this asset was captured (EXIF), if known. */
+    val capturedAt: Instant? = null,
 ) {
     /** The property value, or "" when absent. */
     fun property(key: String): String = properties[key].orEmpty()

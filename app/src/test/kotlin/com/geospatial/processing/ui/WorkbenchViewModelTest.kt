@@ -165,6 +165,24 @@ class WorkbenchViewModelTest {
     }
 
     @Test
+    fun `an uploaded original is kept, survives an annotation, and goes away when the slot is cleared`() = runBlocking {
+        importTowers("VMT-1")
+        val asset = vm.state.value.records.single()
+        val original = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 7, 7, 7)
+        val originalFile = { File(projectDir, "images/${asset.id}/${K.SLOT_THERMAL}.orig.jpg") }
+
+        vm.save(asset, mapOf(K.SLOT_THERMAL to ImageEdit.Replace(jpeg, original))).join()
+        assertContentEquals(original, originalFile().readBytes())
+
+        // Annotating the display image (no new original) must not touch the stored original.
+        vm.save(repository.getAll().single(), mapOf(K.SLOT_THERMAL to ImageEdit.Replace(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 2)))).join()
+        assertContentEquals(original, originalFile().readBytes())
+
+        vm.save(repository.getAll().single(), mapOf(K.SLOT_THERMAL to ImageEdit.Clear)).join()
+        assertFalse(originalFile().exists())
+    }
+
+    @Test
     fun `export writes one PDF per READY tower`() = runBlocking {
         completeImageFolder("VMT-1")
         completeImageFolder("VMT-3")

@@ -66,8 +66,13 @@ fun DetailView(
         ImageEdit.Clear -> ImageSource.Missing
         null -> savedImages[slotId] ?: ImageSource.Missing
     }
-    fun setImage(slotId: String, bytes: ByteArray?) {
-        imageEdits[slotId] = if (bytes == null || bytes.isEmpty()) ImageEdit.Clear else ImageEdit.Replace(bytes)
+    fun setImage(slotId: String, bytes: ByteArray?, original: ByteArray? = null) {
+        imageEdits[slotId] = if (bytes == null || bytes.isEmpty()) {
+            ImageEdit.Clear
+        } else {
+            // An annotation (no new original) on a not-yet-saved upload keeps that upload's original.
+            ImageEdit.Replace(bytes, original ?: (imageEdits[slotId] as? ImageEdit.Replace)?.original)
+        }
     }
 
     // --- SAVE LOGIC ---
@@ -93,7 +98,7 @@ fun DetailView(
     @Composable
     fun RowScope.Slot(slot: com.geospatial.processing.core.plugin.ImageSlotDef) {
         ImageSlot(slot.label, previewOf(slot.id), false,
-            onUpload = { setImage(slot.id, it) },
+            onUpload = { bytes, original -> setImage(slot.id, bytes, original) },
             onEdit = { file -> imageFileToEdit = file; editingSlotId = slot.id }
         )
     }
@@ -222,7 +227,7 @@ fun RowScope.ImageSlot(
     label: String,
     imageSource: ImageSource,
     isError: Boolean,
-    onUpload: (ByteArray?) -> Unit,
+    onUpload: (display: ByteArray?, original: ByteArray?) -> Unit,
     onEdit: (File) -> Unit
 ) {
     val bitmap: ImageBitmap? = remember(imageSource) {
@@ -247,7 +252,11 @@ fun RowScope.ImageSlot(
                 .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
                 .clickable {
                     val file = pickImageFile()
-                    if (file != null) { val compressed = ImageUtils.compressImage(file); if (compressed != null) onUpload(compressed) }
+                    if (file != null) {
+                        // The display copy is compressed; the original is kept so EXIF/radiometric data survives.
+                        val compressed = ImageUtils.compressImage(file)
+                        if (compressed != null) onUpload(compressed, file.readBytes())
+                    }
                 },
             contentAlignment = Alignment.Center
         ) {
@@ -286,7 +295,7 @@ fun RowScope.ImageSlot(
 
                     // 2. DELETE BUTTON
                     IconButton(
-                        onClick = { onUpload(ByteArray(0)) },
+                        onClick = { onUpload(ByteArray(0), null) },
                         modifier = Modifier
                             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), RoundedCornerShape(50))
                             .size(36.dp)
