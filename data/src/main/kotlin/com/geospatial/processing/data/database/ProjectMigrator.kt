@@ -18,7 +18,8 @@ class ProjectMigrationException(message: String, cause: Throwable) : Exception(m
 /**
  * Upgrades a project database to the current schema (tracked in SQLite's `PRAGMA user_version`).
  *
- * v4 (Phase 2): `assets.captured_at` is added (EXIF capture time). Backed up to `project.db.pre-v4.bak` first.
+ * v4 and v5 (Phase 2): `assets.captured_at` (EXIF capture time) and `assets.severity` are added. If any column is
+ * missing the database is first copied to `project.db.pre-v<first missing step>.bak` (one backup for the whole chain).
  *
  * v3 (Phase 1): `geo_data` rows (fixed tower columns + image BLOBs) become `assets`, and every image
  * BLOB is written to <project>/images/<assetId>/. Safety:
@@ -30,7 +31,7 @@ class ProjectMigrationException(message: String, cause: Throwable) : Exception(m
  */
 object ProjectMigrator {
 
-    const val SCHEMA_VERSION = 4
+    const val SCHEMA_VERSION = 5
     private const val V3 = 3
     private val log = LoggerFactory.getLogger(ProjectMigrator::class.java)
 
@@ -38,15 +39,24 @@ object ProjectMigrator {
     fun migrate(db: Database, dbFile: File, projectDir: File) {
         val version = transaction(db) { userVersion() }
         if (version < V3) migrateToV3(db, dbFile, projectDir)
-        if (version < SCHEMA_VERSION) migrateToV4(db, dbFile)
+        if (version < SCHEMA_VERSION) addColumns(db, dbFile, version)
     }
 
-    private fun migrateToV4(db: Database, dbFile: File) {
-        val hasColumn = transaction(db) { columnExists("assets", "captured_at") }
-        val backup = if (hasColumn) null else backup(dbFile, 4)
+    /** A column added to `assets` in schema [version]. */
+    private class ColumnStep(val version: Int, val column: String, val ddl: String)
+
+    private val columnSteps = listOf(
+        ColumnStep(4, "captured_at", "ALTER TABLE assets ADD COLUMN captured_at INTEGER"),
+        ColumnStep(5, "severity", "ALTER TABLE assets ADD COLUMN severity VARCHAR(20) NOT NULL DEFAULT 'NONE'"),
+    )
+
+    /** Brings a v3+ database up to [SCHEMA_VERSION]. New databases already have the columns (SchemaUtils created them). */
+    private fun addColumns(db: Database, dbFile: File, fromVersion: Int) {
+        val pending = columnSteps.filter { it.version > fromVersion && !transaction(db) { columnExists("assets", it.column) } }
+        val backup = pending.firstOrNull()?.let { backup(dbFile, it.version) }
         try {
             transaction(db) {
-                if (!hasColumn) exec("ALTER TABLE assets ADD COLUMN captured_at INTEGER", explicitStatementType = StatementType.ALTER)
+                pending.forEach { exec(it.ddl, explicitStatementType = StatementType.ALTER) }
                 exec("PRAGMA user_version = $SCHEMA_VERSION", explicitStatementType = StatementType.OTHER)
             }
         } catch (e: Exception) {

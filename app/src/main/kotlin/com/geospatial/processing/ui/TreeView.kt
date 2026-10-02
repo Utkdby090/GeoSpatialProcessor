@@ -13,8 +13,13 @@ import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.geospatial.processing.core.plugin.DomainPlugin
 import com.geospatial.processing.domain.model.Asset
+import com.geospatial.processing.domain.model.Severity
+import com.geospatial.processing.ui.components.SeverityBadge
 import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.JFrame
@@ -38,6 +45,10 @@ fun TreeView(
     rootDir: String,
     isAscending: Boolean,
     onToggleSort: () -> Unit,
+    minSeverity: Severity,
+    sortBySeverity: Boolean,
+    onMinSeverityChange: (Severity) -> Unit,
+    onToggleSeveritySort: () -> Unit,
 
     // NEW: Theme Toggle Parameters
     isDarkTheme: Boolean,
@@ -98,6 +109,37 @@ fun TreeView(
 
                 // RIGHT SIDE: The Quick Actions
                 Row(verticalAlignment = Alignment.CenterVertically) {
+
+                    // --- SEVERITY FILTER / SORT ---
+                    var filterMenuOpen by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { filterMenuOpen = true }, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.FilterList,
+                                contentDescription = "Filter by severity",
+                                tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = if (minSeverity != Severity.NONE || sortBySeverity) 1f else 0.7f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        DropdownMenu(expanded = filterMenuOpen, onDismissRequest = { filterMenuOpen = false }) {
+                            Severity.entries.forEach { level ->
+                                DropdownMenuItem(
+                                    text = {
+                                        val prefix = if (minSeverity == level) "✓  " else "    "
+                                        Text(prefix + if (level == Severity.NONE) "Show all" else "${level.label} and above")
+                                    },
+                                    onClick = { onMinSeverityChange(level); filterMenuOpen = false },
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text((if (sortBySeverity) "✓  " else "    ") + "Most severe first") },
+                                onClick = { onToggleSeveritySort(); filterMenuOpen = false },
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     // --- NEW: DAY/NIGHT TOGGLE BUTTON ---
                     IconButton(
@@ -202,6 +244,8 @@ fun TreeView(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
+
+                            SeverityBadge(record.severity, modifier = Modifier.padding(end = 8.dp))
 
                             // Connects to the StatusIndicator in MainScreen
                             StatusIndicator(status = record.status)

@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.geospatial.processing.core.plugin.DomainPlugin
 import com.geospatial.processing.domain.model.*
 import com.geospatial.processing.ui.components.PropertyGroupForm
+import com.geospatial.processing.ui.components.SeverityBadge
 import com.geospatial.processing.util.ImageUtils
 import java.io.File
 import javax.swing.JFileChooser
@@ -147,6 +148,17 @@ fun DetailView(
                     ),
                     enabled = false
                 )
+
+                // Severity as the form currently stands, so it follows the temperatures filled in from the thermal image.
+                val liveSeverity = runCatching { plugin.classify(AssetForm.apply(record, values.toMap())) }.getOrDefault(record.severity)
+                if (liveSeverity != Severity.NONE) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Severity", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        SeverityBadge(liveSeverity)
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(24.dp))
 

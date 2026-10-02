@@ -5,13 +5,14 @@ import com.geospatial.processing.core.plugin.telecom.TelecomKeys as K
 import com.geospatial.processing.domain.imaging.ImageSlot
 import com.geospatial.processing.domain.imaging.TowerImageResolver
 import com.geospatial.processing.domain.model.Asset
+import com.geospatial.processing.domain.model.Severity
 import com.geospatial.processing.domain.thermal.ThermalOverrides
 import com.geospatial.processing.domain.thermal.ThermalStats
 import java.io.File
 import java.util.Locale
 
 /** Electric grid / transmission line inspection: towers, mid-spans, repair sleeves and earth-wire joints. */
-class TelecomPlugin : DomainPlugin {
+class TelecomPlugin(private val thresholds: SeverityThresholds = SeverityThresholds()) : DomainPlugin {
     override val pluginId = K.PLUGIN_ID
     override val displayName = "Electric Grid Inspection"
     override val description = "Process 765kV transmission lines, mid-spans, and hardware fittings."
@@ -71,6 +72,24 @@ class TelecomPlugin : DomainPlugin {
             isFault = isFault(asset),
             showsSequenceNavigator = ReportKind.of(asset) == ReportKind.TOWER,
         )
+    }
+
+    /**
+     * Severity from the temperature rise over ambient: the Rise Temp field, or Fault Temp minus Ambient Temp when
+     * there is no rise. A fault report with no usable temperatures is MEDIUM (needs a look, cannot be rated), and a
+     * report the inspector marked as a fault is never lower than LOW.
+     */
+    override fun classify(asset: Asset): Severity {
+        val rise = number(asset.property(K.RISE_TEMP)) ?: run {
+            val fault = number(asset.property(K.FAULT_TEMP))
+            val ambient = number(asset.property(K.AMBIENT_TEMP))
+            if (fault != null && ambient != null) fault - ambient else null
+        }
+        val flagged = isFault(asset)
+        return when {
+            rise == null -> if (flagged) Severity.MEDIUM else Severity.NONE
+            else -> thresholds.of(rise).let { if (flagged && it == Severity.NONE) Severity.LOW else it }
+        }
     }
 
     /** Emissivity, ambient temperature (also used as the reflected temperature) and humidity typed into the form. */

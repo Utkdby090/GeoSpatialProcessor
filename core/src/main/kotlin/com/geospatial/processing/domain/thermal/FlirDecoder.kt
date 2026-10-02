@@ -134,8 +134,8 @@ class FlirDecoder(private val swapBytes: Boolean? = null) : ThermalDecoder {
             atmBeta1 = f(0x78).takeIf { it != 0.0 } ?: DEFAULT_BETA1,
             atmBeta2 = f(0x7C).takeIf { it != 0.0 } ?: DEFAULT_BETA2,
             atmX = f(0x80).takeIf { it != 0.0 } ?: DEFAULT_X,
-            planckO = buf.getInt(record.offset + 0x1E0).toDouble(),
-            planckR2 = f(0x1E4),
+            planckO = buf.getInt(record.offset + 0x308).toDouble(),
+            planckR2 = f(0x30C),
         )
         val essentials = listOf(params.emissivity, params.distanceM, params.reflectedTempC, params.atmosphericTempC, params.planckR1, params.planckR2, params.planckB, params.planckF)
         if (!essentials.all(::valid) || params.planckR1 == 0.0 || params.planckR2 == 0.0 || params.planckB == 0.0) {
@@ -190,7 +190,7 @@ class FlirDecoder(private val swapBytes: Boolean? = null) : ThermalDecoder {
         const val TYPE_RAW_DATA = 0x01
         const val TYPE_CAMERA_PARAMS = 0x20
         const val RAW_HEADER_SIZE = 32
-        const val PARAMS_MIN_LENGTH = 0x1E8
+        const val PARAMS_MIN_LENGTH = 0x310
         val PLAUSIBLE_RANGE_C = -80f..700f
 
         // FLIR's published defaults for the atmospheric transmission model, for files that leave them at zero.
