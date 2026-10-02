@@ -29,6 +29,7 @@ dependencies {
 
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.koin.test)
+    testImplementation(libs.openpdf) // reads the exported PDFs back in tests
 }
 
 compose.desktop {

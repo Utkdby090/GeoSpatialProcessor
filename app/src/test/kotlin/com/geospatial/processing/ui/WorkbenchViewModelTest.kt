@@ -8,7 +8,11 @@ import com.geospatial.processing.data.repository.AssetRepository
 import com.geospatial.processing.domain.model.AssetImage
 import com.geospatial.processing.domain.model.AssetImageResolver
 import com.geospatial.processing.domain.model.RecordStatus
+import com.geospatial.processing.domain.model.ReportSettings
 import com.geospatial.processing.domain.model.Severity
+import com.geospatial.processing.utils.ProjectManager
+import com.lowagie.text.pdf.PdfReader
+import com.lowagie.text.pdf.parser.PdfTextExtractor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
@@ -46,7 +50,7 @@ class WorkbenchViewModelTest {
         repository = AssetRepository(session.database)
         val plugin = TelecomPlugin()
         vm = WorkbenchViewModel(
-            plugin, repository, ImageStore(projectDir), AssetImageResolver(plugin, projectDir),
+            plugin, repository, ImageStore(projectDir), AssetImageResolver(plugin, projectDir), projectDir,
             initialRootImageDirectory = imageRoot.path,
             exportResultDisplayMillis = 0,
         )
@@ -199,6 +203,43 @@ class WorkbenchViewModelTest {
                 z.entries().toList().map { it.name }
             )
         }
+    }
+
+    private fun writeProjectJson() = File(projectDir, "project.json")
+        .writeText("""{"projectName":"p","pluginId":"com.geo.telecom","createdAt":1,"lastModified":1}""")
+
+    private fun firstPdfText(zip: File): String {
+        val pdf = ZipFile(zip).use { z -> z.getInputStream(z.entries().nextElement()).readBytes() }
+        return PdfTextExtractor(PdfReader(pdf)).getTextFromPage(1)
+    }
+
+    @Test
+    fun `export with settings saves them in the project and uses the template`() = runBlocking {
+        writeProjectJson()
+        completeImageFolder("VMT-1")
+        importTowers("VMT-1")
+        val zip = File(root, "styled.zip")
+        val settings = ReportSettings(template = "SUMMARY", companyName = "Acme Grid")
+
+        vm.exportZip(zip, settings).join()
+
+        assertEquals(settings, vm.state.value.reportSettings)
+        assertEquals(settings, ProjectManager.readProjectConfig(projectDir)!!.report)
+        val text = firstPdfText(zip)
+        assertTrue(text.contains("ACME GRID") && text.contains("SEVERITY"), text)
+    }
+
+    @Test
+    fun `export without settings uses the saved ones`() = runBlocking {
+        writeProjectJson()
+        completeImageFolder("VMT-1")
+        importTowers("VMT-1")
+        vm.exportZip(File(root, "first.zip"), ReportSettings(companyName = "Acme Grid")).join()
+
+        val second = File(root, "second.zip")
+        vm.exportZip(second).join()
+
+        assertTrue(firstPdfText(second).contains("ACME GRID"))
     }
 
     @Test
