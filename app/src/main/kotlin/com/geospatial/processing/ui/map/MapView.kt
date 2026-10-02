@@ -1,5 +1,8 @@
 package com.geospatial.processing.ui.map
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -11,6 +14,13 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.rememberWindowState
+import com.geospatial.processing.ui.CustomTitleBar
+import com.geospatial.processing.ui.theme.GeospatialEnterpriseTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -20,6 +30,7 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import kotlin.math.roundToInt
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.onSizeChanged
@@ -37,6 +48,11 @@ import org.jetbrains.skia.Image as SkiaImage
 
 private const val PIN_RADIUS_DP = 8f
 private const val HIT_RADIUS_DP = 14.0
+private const val MAX_CACHED_TILES = 400
+private const val MAX_FALLBACK_LEVELS = 4
+private const val ZOOM_MILLIS = 220
+private const val ZOOM_IN_START = 0.8f
+private const val ZOOM_OUT_START = 1.25f
 
 /** Assets still at 0,0 have no position yet (the CSV left it blank and no image GPS filled it in). */
 private fun Asset.hasPosition() = !(latitude == 0.0 && longitude == 0.0)
@@ -64,6 +80,7 @@ fun MapView(
 
     val tiles = remember { mutableStateMapOf<TileKey, ImageBitmap>() }
     val failed = remember { mutableStateMapOf<TileKey, Boolean>() }
+    val loading = remember { HashSet<TileKey>() }
     val visible = remember(viewport) { viewport.visibleTiles() }
 
     // Fit once when the size is known and there is something to show; after that the user is in charge.
@@ -76,10 +93,19 @@ fun MapView(
 
     val scope = rememberCoroutineScope()
     LaunchedEffect(visible) {
-        visible.map { it.key }.distinct().filter { it !in tiles && failed[it] != true }.forEach { key ->
+        // Keep memory bounded: when many tiles pile up, drop the ones not on screen (they reload from the disk cache).
+        if (tiles.size > MAX_CACHED_TILES) {
+            val keep = visible.map { it.key }.toSet()
+            tiles.keys.filter { it !in keep }.forEach { tiles.remove(it) }
+        }
+        visible.map { it.key }.distinct().filter { it !in tiles && failed[it] != true && loading.add(it) }.forEach { key ->
             scope.launch {
                 val bytes = withContext(Dispatchers.IO) { tileLoader.load(key) }
-                val image = bytes?.let { runCatching { SkiaImage.makeFromEncoded(it).toComposeImageBitmap() }.getOrNull() }
+                // Decoding is off the UI thread too, so panning never stutters on it.
+                val image = withContext(Dispatchers.Default) {
+                    bytes?.let { runCatching { SkiaImage.makeFromEncoded(it).toComposeImageBitmap() }.getOrNull() }
+                }
+                loading.remove(key)
                 if (image != null) tiles[key] = image else failed[key] = true
             }
         }
@@ -87,10 +113,27 @@ fun MapView(
 
     val selected = positioned.firstOrNull { it.id == selectedId }
 
+    // A zoom step eases in: the new level starts slightly scaled and settles to 1, around the zoom anchor.
+    val zoomScale = remember { Animatable(1f) }
+    var zoomPivot by remember { mutableStateOf(TransformOrigin.Center) }
+    fun zoomTo(level: Int, anchor: ScreenPoint) {
+        val next = viewport.withZoom(level, anchor)
+        if (next.zoom == viewport.zoom) return
+        zoomPivot = TransformOrigin((anchor.x / viewport.width).toFloat(), (anchor.y / viewport.height).toFloat())
+        val zoomingIn = next.zoom > viewport.zoom
+        viewport = next
+        scope.launch {
+            zoomScale.snapTo(if (zoomingIn) ZOOM_IN_START else ZOOM_OUT_START)
+            zoomScale.animateTo(1f, tween(ZOOM_MILLIS, easing = FastOutSlowInEasing))
+        }
+    }
+    fun zoomBy(step: Int, anchor: ScreenPoint = ScreenPoint(viewport.width / 2, viewport.height / 2)) = zoomTo(viewport.zoom + step, anchor)
+
     Box(modifier.background(Color(0xFFE5E7EB))) {
         Canvas(
             Modifier
                 .fillMaxSize()
+                .graphicsLayer { scaleX = zoomScale.value; scaleY = zoomScale.value; transformOrigin = zoomPivot }
                 .onSizeChanged { size ->
                     viewport = viewport.withSize(size.width.toDouble(), size.height.toDouble())
                     sized = size.width > 0 && size.height > 0
@@ -100,7 +143,7 @@ fun MapView(
                     val dy = change.scrollDelta.y
                     if (dy != 0f) {
                         val at = ScreenPoint(change.position.x.toDouble(), change.position.y.toDouble())
-                        viewport = viewport.withZoom(viewport.zoom + if (dy < 0) 1 else -1, at)
+                        zoomBy(if (dy < 0) 1 else -1, at)
                         change.consume()
                     }
                 }
@@ -121,13 +164,29 @@ fun MapView(
                 },
         ) {
             visible.forEach { placed ->
-                val bitmap = tiles[placed.key]
-                if (bitmap != null) {
-                    drawImage(
-                        bitmap,
-                        dstOffset = IntOffset(placed.left.toInt(), placed.top.toInt()),
-                        dstSize = IntSize(256, 256),
-                    )
+                val dst = IntOffset(placed.left.roundToInt(), placed.top.roundToInt())
+                // 257 px: a one-pixel overlap hides hairline seams between rounded tile edges.
+                val dstSize = IntSize(257, 257)
+                val exact = tiles[placed.key]
+                if (exact != null) {
+                    drawImage(exact, dstOffset = dst, dstSize = dstSize)
+                } else {
+                    // Not loaded yet: show the blurry enlarged part of a coarser tile we already have.
+                    for (up in 1..MAX_FALLBACK_LEVELS) {
+                        val level = placed.key.zoom - up
+                        if (level < 0) break
+                        val parent = tiles[TileKey(level, placed.key.x shr up, placed.key.y shr up)] ?: continue
+                        val part = 256 shr up
+                        val mask = (1 shl up) - 1
+                        drawImage(
+                            parent,
+                            srcOffset = IntOffset((placed.key.x and mask) * part, (placed.key.y and mask) * part),
+                            srcSize = IntSize(part, part),
+                            dstOffset = dst,
+                            dstSize = dstSize,
+                        )
+                        break
+                    }
                 }
             }
 
@@ -156,8 +215,8 @@ fun MapView(
         }
 
         Column(Modifier.align(Alignment.TopEnd).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            FilledTonalIconButton(onClick = { viewport = viewport.withZoom(viewport.zoom + 1) }) { Text("+") }
-            FilledTonalIconButton(onClick = { viewport = viewport.withZoom(viewport.zoom - 1) }) { Text("−") }
+            FilledTonalIconButton(onClick = { zoomBy(1) }) { Text("+") }
+            FilledTonalIconButton(onClick = { zoomBy(-1) }) { Text("−") }
             FilledTonalIconButton(
                 enabled = points.isNotEmpty(),
                 onClick = { viewport = MapViewport.fit(points, viewport.width, viewport.height) },
@@ -177,6 +236,37 @@ fun MapView(
 
         if (points.isEmpty()) {
             Text("No tower has a position yet.", Modifier.align(Alignment.Center), color = Color.DarkGray)
+        }
+    }
+}
+
+/**
+ * The map in its own native window with the same minimise / maximise / close title bar as the main window.
+ * Selecting a pin selects that tower in the workbench behind it.
+ */
+@Composable
+fun MapWindow(
+    assets: List<Asset>,
+    selectedId: String?,
+    plugin: DomainPlugin,
+    tileLoader: TileLoader,
+    isDarkTheme: Boolean,
+    onSelect: (Asset) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val windowState = rememberWindowState(width = 1100.dp, height = 750.dp, position = WindowPosition(Alignment.Center))
+    Window(
+        onCloseRequest = onDismiss,
+        state = windowState,
+        undecorated = true,
+        title = "Tower Map",
+        icon = com.geospatial.processing.ui.components.rememberAppIcon(),
+    ) {
+        GeospatialEnterpriseTheme(darkTheme = isDarkTheme) {
+            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                CustomTitleBar(windowState = windowState, onCloseApp = onDismiss, appName = "Tower Map")
+                MapView(assets, selectedId, plugin, tileLoader, onSelect, Modifier.fillMaxSize())
+            }
         }
     }
 }

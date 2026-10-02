@@ -46,7 +46,8 @@ compose.desktop {
         nativeDistributions {
             // Keep the pre-modules package name (it was the root project name) for installers.
             packageName = rootProject.name
-            modules("java.sql", "java.naming")
+            // java.net.http is for the map's tile downloads.
+            modules("java.sql", "java.naming", "jdk.unsupported", "java.management", "java.desktop", "java.net.http")
         }
     }
 }
