@@ -30,7 +30,10 @@ import androidx.compose.ui.window.WindowState
 import com.geospatial.processing.core.plugin.DomainPlugin
 import com.geospatial.processing.domain.model.AssetImageResolver
 import com.geospatial.processing.domain.model.RecordStatus
+import com.geospatial.processing.ui.map.MapView
+import com.geospatial.processing.ui.map.TileLoader
 import com.geospatial.processing.ui.theme.*
+import com.geospatial.processing.utils.AppDirs
 import java.io.File
 import java.awt.Image
 import javax.imageio.ImageIO
@@ -49,6 +52,8 @@ fun FrameWindowScope.MainScreen(
     // UI-only state; everything else comes from WorkbenchViewModel.
     var showClearConfirmDialog by remember { mutableStateOf(false) }
     var showAnnotationUtility by remember { mutableStateOf(false) }
+    var showMap by remember { mutableStateOf(false) }
+    val tileLoader = remember { TileLoader(File(AppDirs.dataDir, "tiles")) }
 
     val selectedRecord = state.selectedRecord
     val importCsv = { val file = pickCsvFile(); if (file != null) onAction(WorkbenchAction.ImportCsv(file)) }
@@ -62,6 +67,8 @@ fun FrameWindowScope.MainScreen(
                 CustomThemeableMenuBar(
                     isDarkTheme = state.isDarkTheme,
                     onThemeToggle = { onAction(WorkbenchAction.ToggleTheme) },
+                    showMap = showMap,
+                    onToggleMap = { showMap = !showMap },
                     onNewProject = { showClearConfirmDialog = true },
                     onImportCsv = importCsv,
                     onExportPdf = { val file = saveZipFile(); if (file != null) onAction(WorkbenchAction.ExportZip(file)) },
@@ -109,7 +116,16 @@ fun FrameWindowScope.MainScreen(
 
                         // RIGHT PANE: Detail View
                         Box(modifier = Modifier.weight(0.7f).fillMaxHeight()) {
-                            if (selectedRecord != null) {
+                            if (showMap) {
+                                MapView(
+                                    assets = state.displayedRecords,
+                                    selectedId = state.selectedRecordId,
+                                    plugin = plugin,
+                                    tileLoader = tileLoader,
+                                    onSelect = { onAction(WorkbenchAction.Select(it)) },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            } else if (selectedRecord != null) {
                                 DetailView(
                                     record = selectedRecord,
                                     rootDir = state.rootImageDirectory,
@@ -316,6 +332,8 @@ fun FrameWindowScope.CustomTitleBar(
 fun CustomThemeableMenuBar(
     isDarkTheme: Boolean,
     onThemeToggle: () -> Unit,
+    showMap: Boolean,
+    onToggleMap: () -> Unit,
     onNewProject: () -> Unit,
     onImportCsv: () -> Unit,
     onExportPdf: () -> Unit,
@@ -366,6 +384,9 @@ fun CustomThemeableMenuBar(
             TextButton(onClick = { viewMenuExpanded = true }) { Text("View", color = MaterialTheme.colorScheme.onSurface) }
             DropdownMenu(expanded = viewMenuExpanded, onDismissRequest = { viewMenuExpanded = false }, modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
                 DropdownMenuItem(onClick = { viewMenuExpanded = false; onRefreshList() }, text = { Text("Refresh List", color = MaterialTheme.colorScheme.onSurface) })
+                DropdownMenuItem(onClick = { viewMenuExpanded = false; onToggleMap() }, text = {
+                    Text(if (showMap) "Hide Map" else "Show Map", color = MaterialTheme.colorScheme.onSurface)
+                })
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
                 DropdownMenuItem(onClick = { viewMenuExpanded = false; onThemeToggle() }, text = {
                     Text(if (isDarkTheme) "Switch to Light Mode" else "Switch to Dark Mode", color = MaterialTheme.colorScheme.onSurface)
