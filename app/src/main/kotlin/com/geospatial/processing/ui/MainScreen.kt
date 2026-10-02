@@ -73,6 +73,8 @@ fun FrameWindowScope.MainScreen(
                     onNewProject = { showClearConfirmDialog = true },
                     onImportCsv = importCsv,
                     onExportPdf = { showExportDialog = true },
+                    onExportGeoPackage = { saveGeoPackageFile("towers")?.let { onAction(WorkbenchAction.ExportGeoPackage(it)) } },
+                    onImportGeoPackage = { pickGeoPackageFile()?.let { onAction(WorkbenchAction.ImportGeoPackage(it)) } },
                     onExit = onCloseApp,
                     hasSelection = selectedRecord != null,
                     onDeleteSelected = { onAction(WorkbenchAction.DeleteSelected) },
@@ -203,6 +205,16 @@ fun FrameWindowScope.MainScreen(
                             Text("Got it")
                         }
                     }
+                )
+            }
+
+            state.notice?.let { notice ->
+                AlertDialog(
+                    onDismissRequest = { onAction(WorkbenchAction.DismissNotice) },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    title = { Text("GeoPackage", color = MaterialTheme.colorScheme.onSurface) },
+                    text = { Text(notice, color = MaterialTheme.colorScheme.onSurface) },
+                    confirmButton = { Button(onClick = { onAction(WorkbenchAction.DismissNotice) }) { Text("OK") } },
                 )
             }
 
@@ -352,6 +364,8 @@ fun CustomThemeableMenuBar(
     onNewProject: () -> Unit,
     onImportCsv: () -> Unit,
     onExportPdf: () -> Unit,
+    onExportGeoPackage: () -> Unit,
+    onImportGeoPackage: () -> Unit,
     onExit: () -> Unit,
     hasSelection: Boolean,
     onDeleteSelected: () -> Unit,
@@ -380,6 +394,8 @@ fun CustomThemeableMenuBar(
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
                 DropdownMenuItem(onClick = { fileMenuExpanded = false; onImportCsv() }, text = { Text("Import CSV...", color = MaterialTheme.colorScheme.onSurface) })
                 DropdownMenuItem(onClick = { fileMenuExpanded = false; onExportPdf() }, text = { Text("Export PDF...", color = MaterialTheme.colorScheme.onSurface) })
+                DropdownMenuItem(onClick = { fileMenuExpanded = false; onImportGeoPackage() }, text = { Text("Import GeoPackage...", color = MaterialTheme.colorScheme.onSurface) })
+                DropdownMenuItem(onClick = { fileMenuExpanded = false; onExportGeoPackage() }, text = { Text("Export GeoPackage...", color = MaterialTheme.colorScheme.onSurface) })
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
                 DropdownMenuItem(onClick = { fileMenuExpanded = false; onExit() }, text = { Text("Exit", color = MaterialTheme.colorScheme.onSurface) })
             }

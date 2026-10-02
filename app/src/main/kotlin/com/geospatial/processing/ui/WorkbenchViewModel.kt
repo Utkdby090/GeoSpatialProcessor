@@ -3,6 +3,8 @@ package com.geospatial.processing.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.geospatial.processing.core.plugin.DomainPlugin
+import com.geospatial.processing.data.geopackage.GeoPackage
+import com.geospatial.processing.data.geopackage.GeoPackageException
 import com.geospatial.processing.data.images.ImageStore
 import com.geospatial.processing.data.repository.AssetRepository
 import com.geospatial.processing.domain.imaging.metadata.ImageIngestor
@@ -51,6 +53,8 @@ data class WorkbenchUiState(
     val sortBySeverity: Boolean = false,
     /** The project's saved report template and branding. */
     val reportSettings: ReportSettings = ReportSettings(),
+    /** A result the user should read (e.g. what a GeoPackage import did); null when there is none. */
+    val notice: String? = null,
 ) {
     /** All records in import order (or reversed). Neighbours come from here, so a filter never changes who is next to a tower. */
     private val orderedRecords: List<Asset> get() = if (sortAscending) records else records.reversed()
@@ -99,6 +103,9 @@ sealed interface WorkbenchAction {
     data object ToggleSeveritySort : WorkbenchAction
     data object ToggleTheme : WorkbenchAction
     data object DismissImportSuccess : WorkbenchAction
+    data class ExportGeoPackage(val file: File) : WorkbenchAction
+    data class ImportGeoPackage(val file: File) : WorkbenchAction
+    data object DismissNotice : WorkbenchAction
 }
 
 /** State and logic of one open project's workbench. Lives in the project's Koin scope. */
@@ -144,6 +151,9 @@ class WorkbenchViewModel(
             WorkbenchAction.ToggleSeveritySort -> _state.update { it.copy(sortBySeverity = !it.sortBySeverity) }
             WorkbenchAction.ToggleTheme -> _state.update { it.copy(isDarkTheme = !it.isDarkTheme) }
             WorkbenchAction.DismissImportSuccess -> _state.update { it.copy(showImportSuccess = false) }
+            is WorkbenchAction.ExportGeoPackage -> exportGeoPackage(action.file)
+            is WorkbenchAction.ImportGeoPackage -> importGeoPackage(action.file)
+            WorkbenchAction.DismissNotice -> _state.update { it.copy(notice = null) }
         }
     }
 
@@ -175,6 +185,69 @@ class WorkbenchViewModel(
             )
         })
 
+        scanImages()
+
+        val records = loadRecords()
+        _state.update { it.copy(records = records, importProgress = null, showImportSuccess = true) }
+    }
+
+    /** Imports the towers of a GeoPackage exported by this app; towers already in the project (same id) are left alone. */
+    fun importGeoPackage(file: File): Job = viewModelScope.launch {
+        setImport("Reading GeoPackage...", 0f)
+        try {
+            val content = withContext(io) { GeoPackage.read(file) }
+            val existing = repository.getAll().mapTo(HashSet()) { it.id }
+            val (sameKind, otherKind) = content.assets.partition { it.pluginId == plugin.pluginId }
+            val (duplicates, fresh) = sameKind.partition { it.id in existing }
+
+            val start = repository.nextPosition()
+            // Images are not part of a GeoPackage: they are matched from the image folder again, so status starts as DRAFT.
+            repository.insertAll(fresh.mapIndexed { i, a -> a.copy(position = start + i, status = RecordStatus.DRAFT, images = emptyMap()) })
+            if (fresh.isNotEmpty()) scanImages()
+
+            val records = loadRecords()
+            _state.update { it.copy(records = records, notice = importSummary(fresh.size, duplicates.size, otherKind.size, content.skipped)) }
+        } catch (e: GeoPackageException) {
+            _state.update { it.copy(notice = "GeoPackage import failed: ${e.message}") }
+        } catch (e: Exception) {
+            log.error("GeoPackage import failed", e)
+            _state.update { it.copy(notice = "GeoPackage import failed: ${e.message}") }
+        } finally {
+            _state.update { it.copy(importProgress = null) }
+        }
+    }
+
+    private fun importSummary(imported: Int, duplicates: Int, otherKind: Int, damaged: List<String>): String = buildString {
+        append("Imported $imported tower${if (imported == 1) "" else "s"}.")
+        if (duplicates > 0) append("\n$duplicates already in this project (left unchanged).")
+        if (otherKind > 0) append("\n$otherKind belong to a different project type and were skipped.")
+        if (damaged.isNotEmpty()) {
+            append("\n${damaged.size} damaged row${if (damaged.size == 1) "" else "s"} skipped:")
+            damaged.take(5).forEach { append("\n  • $it") }
+            if (damaged.size > 5) append("\n  • …and ${damaged.size - 5} more")
+        }
+    }
+
+    fun exportGeoPackage(file: File): Job = viewModelScope.launch {
+        setExport("Writing GeoPackage...", 0f)
+        try {
+            val assets = repository.getAll()
+            val count = withContext(io) {
+                GeoPackage.write(assets, file, layerTitle = projectDir.name) { current, total ->
+                    setExport("Writing GeoPackage $current of $total...", current.toFloat() / total.toFloat())
+                }
+            }
+            _state.update { it.copy(notice = "Exported $count tower${if (count == 1) "" else "s"} to ${file.name}.") }
+        } catch (e: Exception) {
+            log.error("GeoPackage export failed", e)
+            _state.update { it.copy(notice = "GeoPackage export failed: ${e.message}") }
+        } finally {
+            _state.update { it.copy(exportProgress = null) }
+        }
+    }
+
+    /** An image check per asset: position and capture time from metadata, and READY/DRAFT from what the folders hold. */
+    private suspend fun scanImages() {
         setImport("Scanning Local Folders for Images...", 0.5f)
         val rootDir = _state.value.rootImageDirectory
         val all = repository.getAll()
@@ -189,9 +262,6 @@ class WorkbenchViewModel(
                 setImport("Scanning Local Folders for Images...", 0.5f + ((index + 1).toFloat() / all.size) * 0.5f)
             }
         }
-
-        val records = loadRecords()
-        _state.update { it.copy(records = records, importProgress = null, showImportSuccess = true) }
     }
 
     fun exportZip(zipFile: File, newSettings: ReportSettings? = null, newLogo: File? = null): Job = viewModelScope.launch {
