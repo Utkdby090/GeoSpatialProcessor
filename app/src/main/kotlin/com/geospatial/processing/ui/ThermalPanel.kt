@@ -14,6 +14,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -94,7 +95,6 @@ private fun ThermalFrameView(frame: ThermalFrame, onApply: (ThermalStats) -> Uni
     var palette by remember { mutableStateOf(ThermalPalette.IRON) }
     var hover by remember(frame) { mutableStateOf<Pixel?>(null) }
     var region by remember(frame) { mutableStateOf<Region?>(null) }
-    var dragStart by remember(frame) { mutableStateOf<Pixel?>(null) }
     var size by remember { mutableStateOf(IntSize.Zero) }
 
     val image = remember(frame, palette) {
@@ -120,26 +120,61 @@ private fun ThermalFrameView(frame: ThermalFrame, onApply: (ThermalStats) -> Uni
 
     val hotspot = whole?.maxAt
     val outline = MaterialTheme.colorScheme.primary
+    val ratio = frame.width.toFloat() / frame.height
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // Size the image explicitly from the space available. Chaining fillMaxWidth/heightIn/aspectRatio lets
+        // aspectRatio fall back to a size outside the 360 dp cap, so the image drew far beyond its own box and
+        // covered the image grid above and the readout below.
+        val sideBySide = maxWidth >= 640.dp
+        val maxImageWidth = if (sideBySide) maxWidth * 0.6f else maxWidth
+        val imageWidth = minOf(maxImageWidth, MAX_IMAGE_HEIGHT * ratio)
+        val imageModifier = Modifier.size(imageWidth, imageWidth / ratio)
+        if (sideBySide) {
+            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                ThermalImage(frame, image, hotspot, region, outline, imageModifier, { size = it }, { hover = it }, { region = it }, ::pixelAt)
+                Column(Modifier.weight(1f)) { ThermalReadout(frame, hover, region, selected, onApply) }
+            }
+        } else {
+            Column {
+                ThermalImage(frame, image, hotspot, region, outline, imageModifier, { size = it }, { hover = it }, { region = it }, ::pixelAt)
+                Spacer(Modifier.height(8.dp))
+                ThermalReadout(frame, hover, region, selected, onApply)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThermalImage(
+    frame: ThermalFrame,
+    image: ImageBitmap,
+    hotspot: Pixel?,
+    region: Region?,
+    outline: Color,
+    modifier: Modifier,
+    onSize: (IntSize) -> Unit,
+    onHover: (Pixel?) -> Unit,
+    onRegion: (Region?) -> Unit,
+    pixelAt: (Offset) -> Pixel,
+) {
+    var dragStart by remember(frame) { mutableStateOf<Pixel?>(null) }
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 360.dp)
-            .aspectRatio(frame.width.toFloat() / frame.height)
+        modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .onSizeChanged { size = it }
+            .onSizeChanged(onSize)
             .pointerInput(frame) {
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent()
-                        hover = if (event.type == PointerEventType.Exit) null else pixelAt(event.changes.first().position)
+                        onHover(if (event.type == PointerEventType.Exit) null else pixelAt(event.changes.first().position))
                     }
                 }
             }
-            .pointerInput(frame) { detectTapGestures(onTap = { region = null }) }
+            .pointerInput(frame) { detectTapGestures(onTap = { onRegion(null) }) }
             .pointerInput(frame) {
                 detectDragGestures(
                     onDragStart = { dragStart = pixelAt(it) },
-                    onDrag = { change, _ -> dragStart?.let { s -> pixelAt(change.position).let { e -> region = Region(s.x, s.y, e.x, e.y) } } },
+                    onDrag = { change, _ -> dragStart?.let { s -> pixelAt(change.position).let { e -> onRegion(Region(s.x, s.y, e.x, e.y)) } } },
                     onDragEnd = { dragStart = null },
                     onDragCancel = { dragStart = null },
                 )
@@ -158,13 +193,17 @@ private fun ThermalFrameView(frame: ThermalFrame, onApply: (ThermalStats) -> Uni
     ) {
         Image(bitmap = image, contentDescription = "Thermal image", contentScale = ContentScale.FillBounds, modifier = Modifier.matchParentSize())
     }
+}
 
-    Spacer(Modifier.height(8.dp))
+@Composable
+private fun ThermalReadout(frame: ThermalFrame, hover: Pixel?, region: Region?, selected: ThermalStats?, onApply: (ThermalStats) -> Unit) {
     val cursor = hover?.let { frame.temperatureAt(it.x, it.y) }
     Text(
         text = "Cursor: " + (cursor?.let { fmt(it) } ?: "–"),
         style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface,
     )
+    Spacer(Modifier.height(4.dp))
     Text(
         text = (if (region == null) "Whole image" else "Selection") + ": " + (selected?.let {
             "min ${fmt(it.min)}   max ${fmt(it.max)}   mean ${fmt(it.mean)}"
@@ -172,13 +211,14 @@ private fun ThermalFrameView(frame: ThermalFrame, onApply: (ThermalStats) -> Uni
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
     )
+    Spacer(Modifier.height(4.dp))
     Text(
         text = "Drag on the image to measure an area, click to clear it. Emissivity ${"%.2f".format(Locale.ROOT, frame.params.emissivity)}, " +
             "distance ${"%.0f".format(Locale.ROOT, frame.params.distanceM)} m.",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
     )
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
     OutlinedButton(
         onClick = { selected?.let(onApply) },
         enabled = selected != null,
@@ -187,5 +227,7 @@ private fun ThermalFrameView(frame: ThermalFrame, onApply: (ThermalStats) -> Uni
         Text(if (region == null) "Fill fault fields from hottest point" else "Fill fault fields from selection")
     }
 }
+
+private val MAX_IMAGE_HEIGHT = 360.dp
 
 private fun fmt(t: Float) = "%.1f °C".format(Locale.ROOT, t)
