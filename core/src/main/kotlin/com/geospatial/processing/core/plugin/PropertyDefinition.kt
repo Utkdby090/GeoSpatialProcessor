@@ -6,6 +6,7 @@ import com.geospatial.processing.domain.model.Severity
 import com.geospatial.processing.domain.thermal.ThermalOverrides
 import com.geospatial.processing.domain.thermal.ThermalStats
 import java.io.File
+import com.geospatial.processing.domain.report.ReportOptions
 import java.io.OutputStream
 
 // Defines the types of UI inputs we can generate
@@ -105,4 +106,13 @@ interface ReportStrategy {
      * sequence labels of the neighbouring assets, for the navigator.
      */
     fun writePdf(asset: Asset, images: Map<String, ByteArray?>, previous: String?, next: String?, out: OutputStream)
+
+    /**
+     * Like [writePdf], but with the project's chosen template and branding. Strategies that don't support
+     * templates keep their one layout (this default ignores [options]).
+     */
+    fun writePdf(
+        asset: Asset, images: Map<String, ByteArray?>, previous: String?, next: String?,
+        options: ReportOptions, out: OutputStream,
+    ) = writePdf(asset, images, previous, next, out)
 }

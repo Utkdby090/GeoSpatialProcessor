@@ -56,7 +56,7 @@ fun TreeView(
 
     onSelect: (Asset) -> Unit,
     onImportClick: (File) -> Unit,
-    onExportClick: (File) -> Unit,
+    onExportClick: () -> Unit,
     onDeleteClick: (Asset) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -156,10 +156,7 @@ fun TreeView(
 
                     // Export ZIP Button
                     IconButton(
-                        onClick = {
-                            val file = saveZipFile()
-                            if (file != null) onExportClick(file)
-                        },
+                        onClick = onExportClick,
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(

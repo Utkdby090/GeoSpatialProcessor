@@ -49,7 +49,7 @@ val projectModule = module {
                 ?: error("Plugin '$pluginId' used by ${projectDir.name} is not installed")
         }
         scoped { AssetImageResolver(get(), get<ProjectSession>().projectDir) }
-        viewModel { WorkbenchViewModel(get(), get(), get(), get()) }
+        viewModel { WorkbenchViewModel(get(), get(), get(), get(), get<ProjectSession>().projectDir) }
     }
 }
 

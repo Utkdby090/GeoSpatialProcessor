@@ -12,7 +12,12 @@ import com.geospatial.processing.domain.model.AssetImageResolver
 import com.geospatial.processing.domain.model.ImageSource
 import com.geospatial.processing.domain.model.RecordStatus
 import com.geospatial.processing.domain.model.Severity
+import com.geospatial.processing.domain.model.ReportSettings
 import com.geospatial.processing.domain.report.BulkReportExporter
+import com.geospatial.processing.domain.report.ReportBranding
+import com.geospatial.processing.domain.report.ReportOptions
+import com.geospatial.processing.domain.report.ReportTemplate
+import com.geospatial.processing.utils.ProjectManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +49,8 @@ data class WorkbenchUiState(
     val minSeverity: Severity = Severity.NONE,
     /** Most severe first in the list (ties keep the import/sort order). */
     val sortBySeverity: Boolean = false,
+    /** The project's saved report template and branding. */
+    val reportSettings: ReportSettings = ReportSettings(),
 ) {
     /** All records in import order (or reversed). Neighbours come from here, so a filter never changes who is next to a tower. */
     private val orderedRecords: List<Asset> get() = if (sortAscending) records else records.reversed()
@@ -76,7 +83,11 @@ sealed interface ImageEdit {
 /** User actions on the workbench (MainScreen and its children). */
 sealed interface WorkbenchAction {
     data class ImportCsv(val file: File) : WorkbenchAction
-    data class ExportZip(val file: File) : WorkbenchAction
+    /**
+     * Exports the reports to [file]. With [settings] they are saved in the project first (with [logo], a new logo image
+     * to copy in); without, the project's saved settings are used.
+     */
+    data class ExportZip(val file: File, val settings: ReportSettings? = null, val logo: File? = null) : WorkbenchAction
     data class Select(val record: Asset) : WorkbenchAction
     data class Delete(val record: Asset) : WorkbenchAction
     data object DeleteSelected : WorkbenchAction
@@ -97,6 +108,8 @@ class WorkbenchViewModel(
     private val repository: AssetRepository,
     private val imageStore: ImageStore,
     val imageResolver: AssetImageResolver,
+    /** The project folder, where report settings and the logo are kept. */
+    private val projectDir: File,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     initialRootImageDirectory: String = WorkbenchUiState.DEFAULT_ROOT_IMAGE_DIRECTORY,
     /** How long the export result stays visible before the overlay closes. */
@@ -105,7 +118,12 @@ class WorkbenchViewModel(
 
     private val log = LoggerFactory.getLogger(WorkbenchViewModel::class.java)
 
-    private val _state = MutableStateFlow(WorkbenchUiState(rootImageDirectory = initialRootImageDirectory))
+    private val _state = MutableStateFlow(
+        WorkbenchUiState(
+            rootImageDirectory = initialRootImageDirectory,
+            reportSettings = ProjectManager.readProjectConfig(projectDir)?.report ?: ReportSettings(),
+        )
+    )
     val state: StateFlow<WorkbenchUiState> = _state.asStateFlow()
 
     /** Completes when the initial record load has finished. */
@@ -114,7 +132,7 @@ class WorkbenchViewModel(
     fun onAction(action: WorkbenchAction) {
         when (action) {
             is WorkbenchAction.ImportCsv -> importCsv(action.file)
-            is WorkbenchAction.ExportZip -> exportZip(action.file)
+            is WorkbenchAction.ExportZip -> exportZip(action.file, action.settings, action.logo)
             is WorkbenchAction.Select -> _state.update { it.copy(selectedRecordId = action.record.id) }
             is WorkbenchAction.Delete -> delete(action.record)
             WorkbenchAction.DeleteSelected -> _state.value.selectedRecord?.let { delete(it) }
@@ -176,13 +194,22 @@ class WorkbenchViewModel(
         _state.update { it.copy(records = records, importProgress = null, showImportSuccess = true) }
     }
 
-    fun exportZip(zipFile: File): Job = viewModelScope.launch {
+    fun exportZip(zipFile: File, newSettings: ReportSettings? = null, newLogo: File? = null): Job = viewModelScope.launch {
         setExport("Initializing Export...", 0f)
         try {
             val rootDir = _state.value.rootImageDirectory
             val assets = repository.getAll()
             val processedCount = withContext(io) {
-                BulkReportExporter(plugin).export(assets, { imageResolver.resolve(it, rootDir) }, zipFile) { current, total ->
+                if (newSettings != null) {
+                    val stored = ProjectManager.saveReportSettings(projectDir, newSettings, newLogo)
+                    _state.update { it.copy(reportSettings = stored) }
+                }
+                val settings = _state.value.reportSettings
+                val options = ReportOptions(
+                    template = ReportTemplate.fromName(settings.template),
+                    branding = ReportBranding(settings.companyName, settings.accentColor, ProjectManager.readLogo(projectDir, settings)),
+                )
+                BulkReportExporter(plugin).export(assets, { imageResolver.resolve(it, rootDir) }, zipFile, options) { current, total ->
                     setExport("Compressing Report $current of $total...", current.toFloat() / total.toFloat())
                 }
             }

@@ -23,6 +23,7 @@ class BulkReportExporter(private val plugin: DomainPlugin) {
         assets: List<Asset>,
         imagesOf: (Asset) -> Map<String, ImageSource>,
         destZipFile: File,
+        options: ReportOptions = ReportOptions(),
         onProgress: (current: Int, total: Int) -> Unit = { _, _ -> },
     ): Int {
         val ready = assets.filter { it.status == RecordStatus.READY }
@@ -43,7 +44,7 @@ class BulkReportExporter(private val plugin: DomainPlugin) {
                     val images = imagesOf(asset).mapValues { (_, source) -> source.readBytes() }
 
                     zip.putNextEntry(ZipEntry(report.entryName(asset)))
-                    report.writePdf(asset, images, previous, next, zip)
+                    report.writePdf(asset, images, previous, next, options, zip)
                     zip.closeEntry()
 
                     processed++

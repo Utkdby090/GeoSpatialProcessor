@@ -53,6 +53,7 @@ fun FrameWindowScope.MainScreen(
     var showClearConfirmDialog by remember { mutableStateOf(false) }
     var showAnnotationUtility by remember { mutableStateOf(false) }
     var showMap by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
     val tileLoader = remember { TileLoader(File(AppDirs.dataDir, "tiles")) }
 
     val selectedRecord = state.selectedRecord
@@ -71,7 +72,7 @@ fun FrameWindowScope.MainScreen(
                     onToggleMap = { showMap = !showMap },
                     onNewProject = { showClearConfirmDialog = true },
                     onImportCsv = importCsv,
-                    onExportPdf = { val file = saveZipFile(); if (file != null) onAction(WorkbenchAction.ExportZip(file)) },
+                    onExportPdf = { showExportDialog = true },
                     onExit = onCloseApp,
                     hasSelection = selectedRecord != null,
                     onDeleteSelected = { onAction(WorkbenchAction.DeleteSelected) },
@@ -106,7 +107,7 @@ fun FrameWindowScope.MainScreen(
                                 onThemeToggle = { onAction(WorkbenchAction.ToggleTheme) },
                                 onSelect = { record -> onAction(WorkbenchAction.Select(record)) },
                                 onImportClick = { onAction(WorkbenchAction.ImportCsv(it)) },
-                                onExportClick = { onAction(WorkbenchAction.ExportZip(it)) },
+                                onExportClick = { showExportDialog = true },
                                 onDeleteClick = { onAction(WorkbenchAction.Delete(it)) }
                             )
                         }
@@ -202,6 +203,17 @@ fun FrameWindowScope.MainScreen(
                             Text("Got it")
                         }
                     }
+                )
+            }
+
+            if (showExportDialog) {
+                ExportDialog(
+                    settings = state.reportSettings,
+                    onDismiss = { showExportDialog = false },
+                    onExport = { settings, logo, zip ->
+                        showExportDialog = false
+                        onAction(WorkbenchAction.ExportZip(zip, settings, logo))
+                    },
                 )
             }
 

@@ -3,6 +3,9 @@ package com.geospatial.processing.core.plugin.telecom
 import com.geospatial.processing.core.plugin.ReportStrategy
 import com.geospatial.processing.core.plugin.telecom.TelecomKeys as K
 import com.geospatial.processing.domain.model.Asset
+import com.geospatial.processing.domain.model.Severity
+import com.geospatial.processing.domain.report.ReportOptions
+import com.geospatial.processing.domain.report.parseHexColor
 import com.lowagie.text.*
 import com.lowagie.text.pdf.PdfPCell
 import com.lowagie.text.pdf.PdfPTable
@@ -37,7 +40,16 @@ class TelecomReport(private val plugin: TelecomPlugin) : ReportStrategy {
         return "$folderName/${faultStatusPrefix}_${filePrefix}_${safeTowerName}_Report.pdf"
     }
 
-    override fun writePdf(asset: Asset, images: Map<String, ByteArray?>, previous: String?, next: String?, out: OutputStream) {
+    override fun writePdf(asset: Asset, images: Map<String, ByteArray?>, previous: String?, next: String?, out: OutputStream) =
+        writePdf(asset, images, previous, next, ReportOptions(), out)
+
+    override fun writePdf(
+        asset: Asset, images: Map<String, ByteArray?>, previous: String?, next: String?,
+        options: ReportOptions, out: OutputStream,
+    ) {
+        val template = options.template
+        val branding = options.branding
+        val accent = parseHexColor(branding.accentColor)?.let { Color(it) } ?: sectionColor
         val document = Document(PageSize.A4)
         document.setMargins(20f, 20f, 20f, 20f)
 
@@ -53,10 +65,25 @@ class TelecomReport(private val plugin: TelecomPlugin) : ReportStrategy {
             document.open()
 
             // --- 1. DOCUMENT TITLE ---
-            document.add(Paragraph(TelecomPlugin.reportTitle(asset).uppercase(), titleFont).apply {
+            val title = Paragraph(TelecomPlugin.reportTitle(asset).uppercase(), titleFont).apply {
                 alignment = Element.ALIGN_CENTER
                 setSpacingAfter(8f)
-            })
+            }
+            val logo = branding.logo?.let { runCatching { Image.getInstance(it).apply { scaleToFit(90f, 40f) } }.getOrNull() }
+            if (logo == null) {
+                document.add(title)
+            } else {
+                // Logo on the left, title centred in the remaining space.
+                val titleTable = PdfPTable(floatArrayOf(1.2f, 4f, 1.2f)).apply { widthPercentage = 100f; setSpacingAfter(8f) }
+                titleTable.addCell(PdfPCell(logo, false).apply { border = Rectangle.NO_BORDER; verticalAlignment = Element.ALIGN_MIDDLE })
+                titleTable.addCell(PdfPCell().apply {
+                    border = Rectangle.NO_BORDER
+                    verticalAlignment = Element.ALIGN_MIDDLE
+                    addElement(title.apply { setSpacingAfter(0f) })
+                })
+                titleTable.addCell(PdfPCell(Phrase("")).apply { border = Rectangle.NO_BORDER })
+                document.add(titleTable)
+            }
 
             // --- 2. MASTER RECORD HEADER ---
             val headerTable = PdfPTable(1).apply {
@@ -72,11 +99,14 @@ class TelecomReport(private val plugin: TelecomPlugin) : ReportStrategy {
             })
             document.add(headerTable)
 
+            if (template.showSeverity) document.add(severityBanner(asset.severity))
+
             // --- 3. IMAGES GRID ---
             val imagesTable = PdfPTable(2).apply {
                 widthPercentage = 100f
                 setSpacingAfter(10f)
             }
+            if (template.showImages) {
             addImageCell(imagesTable, label(K.SLOT_LOCATION), images[K.SLOT_LOCATION])
             addImageCell(imagesTable, label(K.SLOT_THERMAL), images[K.SLOT_THERMAL])
             if (kind == ReportKind.TOWER) {
@@ -88,6 +118,7 @@ class TelecomReport(private val plugin: TelecomPlugin) : ReportStrategy {
             }
             addImageCell(imagesTable, label(K.SLOT_RGB_ZOOM), images[K.SLOT_RGB_ZOOM])
             document.add(imagesTable)
+            }
 
             // --- 4. THE METRICS GRID ---
             val metricsTable = PdfPTable(4).apply {
@@ -97,7 +128,7 @@ class TelecomReport(private val plugin: TelecomPlugin) : ReportStrategy {
             }
 
             // PARTITION 1: Location & Timestamp
-            metricsTable.addCell(createSectionHeader("LOCATION & CAPTURE DETAILS", 4))
+            metricsTable.addCell(createSectionHeader("LOCATION & CAPTURE DETAILS", 4, accent))
             addMetricCell(metricsTable, "Date Captured", p(K.CAPTURED_DATE).ifEmpty { "N/A" })
             addMetricCell(metricsTable, "Time Captured", p(K.CAPTURED_TIME).ifEmpty { "N/A" })
             addMetricCell(metricsTable, "Coordinates", "${asset.latitude}, ${asset.longitude}")
@@ -107,7 +138,7 @@ class TelecomReport(private val plugin: TelecomPlugin) : ReportStrategy {
             addMetricCell(metricsTable, "Side", p(K.SIDE).ifEmpty { "N/A" })
 
             // PARTITION 2: Environmental & Load
-            metricsTable.addCell(createSectionHeader("ENVIRONMENTAL & LOAD PARAMETERS", 4))
+            metricsTable.addCell(createSectionHeader("ENVIRONMENTAL & LOAD PARAMETERS", 4, accent))
             addMetricCell(metricsTable, "Ambient Temp", formatWithUnit(p(K.AMBIENT_TEMP), "°C"))
             addMetricCell(metricsTable, "Humidity", formatWithUnit(p(K.HUMIDITY), "%"))
             // Emissivity completes the half-row, so we add a blank spacer to finish the row neatly.
@@ -125,16 +156,20 @@ class TelecomReport(private val plugin: TelecomPlugin) : ReportStrategy {
             if (sortedCircuits.size % 2 != 0) addMetricCell(metricsTable, "", "")
 
             // PARTITION 3: Fault Analysis
-            metricsTable.addCell(createSectionHeader("FAULT ANALYSIS", 4))
+            metricsTable.addCell(createSectionHeader("FAULT ANALYSIS", 4, accent))
             addMetricCell(metricsTable, "Fault Temp", formatWithUnit(p(K.FAULT_TEMP), "°C"))
             addMetricCell(metricsTable, "Rise Temp", formatWithUnit(p(K.RISE_TEMP), "°C"))
+            if (template.showSeverity) {
+                addMetricCell(metricsTable, "Severity", asset.severity.label)
+                addMetricCell(metricsTable, "", "")
+            }
             // Fault description spans the whole bottom row
             metricsTable.addCell(createLabelCell("Description"))
             metricsTable.addCell(createValueCell(p(K.FAULT_DESCRIPTION)).apply { colspan = 3 })
             document.add(metricsTable)
 
             // --- 5. FOOTER ---
-            val company = p(K.COMPANY_NAME)
+            val company = branding.companyName.ifBlank { p(K.COMPANY_NAME) }
             val displayCompany = if (company.isNotBlank()) company.uppercase() else "GEOSPATIAL PROCESSING"
             document.add(Paragraph("Report created by : $displayCompany", Font(Font.HELVETICA, 10f, Font.BOLD, Color.GRAY)).apply {
                 alignment = Element.ALIGN_RIGHT
@@ -150,10 +185,30 @@ class TelecomReport(private val plugin: TelecomPlugin) : ReportStrategy {
         return "$value $unit"
     }
 
-    private fun createSectionHeader(title: String, colSpan: Int): PdfPCell =
+    private fun severityBanner(severity: Severity): PdfPTable {
+        val color = when (severity) {
+            Severity.NONE -> Color(107, 114, 128)
+            Severity.LOW -> Color(202, 138, 4)
+            Severity.MEDIUM -> Color(234, 88, 12)
+            Severity.HIGH -> Color(220, 38, 38)
+            Severity.CRITICAL -> Color(127, 29, 29)
+        }
+        return PdfPTable(1).apply {
+            widthPercentage = 100f
+            setSpacingAfter(10f)
+            addCell(PdfPCell(Phrase("SEVERITY: ${severity.label.uppercase()}", headerFont)).apply {
+                backgroundColor = color
+                setPadding(5f)
+                horizontalAlignment = Element.ALIGN_CENTER
+                border = Rectangle.NO_BORDER
+            })
+        }
+    }
+
+    private fun createSectionHeader(title: String, colSpan: Int, accent: Color = sectionColor): PdfPCell =
         PdfPCell(Phrase(title, sectionFont)).apply {
             colspan = colSpan
-            backgroundColor = sectionColor
+            backgroundColor = accent
             setPadding(4f)
             horizontalAlignment = Element.ALIGN_CENTER
             verticalAlignment = Element.ALIGN_MIDDLE
