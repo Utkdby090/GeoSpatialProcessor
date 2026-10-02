@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.geospatial.processing.core.plugin.DomainPlugin
 import com.geospatial.processing.data.images.ImageStore
 import com.geospatial.processing.data.repository.AssetRepository
+import com.geospatial.processing.domain.imaging.metadata.ImageIngestor
 import com.geospatial.processing.domain.model.Asset
 import com.geospatial.processing.domain.model.AssetImage
 import com.geospatial.processing.domain.model.AssetImageResolver
+import com.geospatial.processing.domain.model.ImageSource
 import com.geospatial.processing.domain.model.RecordStatus
 import com.geospatial.processing.domain.report.BulkReportExporter
 import kotlinx.coroutines.CoroutineDispatcher
@@ -52,7 +54,11 @@ data class WorkbenchUiState(
 
 /** A change to one image slot made in the form, applied when the asset is saved. */
 sealed interface ImageEdit {
-    class Replace(val bytes: ByteArray) : ImageEdit
+    /**
+     * [bytes] is the display image. [original] is the untouched file the user picked (keeps EXIF and radiometric data);
+     * null for edits derived from an existing image (annotations), which leave the stored original alone.
+     */
+    class Replace(val bytes: ByteArray, val original: ByteArray? = null) : ImageEdit
     data object Clear : ImageEdit
 }
 
@@ -132,8 +138,11 @@ class WorkbenchViewModel(
         val all = repository.getAll()
         withContext(io) {
             all.forEachIndexed { index, asset ->
+                // Position and capture time the CSV didn't provide come from the image metadata.
+                val files = imageResolver.resolve(asset, rootDir).values.filterIsInstance<ImageSource.FromFile>().map { it.file }
+                val enriched = ImageIngestor.enrich(asset, ImageIngestor.read(files))
                 val newStatus = if (imageResolver.isReady(asset, rootDir)) RecordStatus.READY else RecordStatus.DRAFT
-                if (asset.status != newStatus) repository.save(asset.copy(status = newStatus))
+                if (enriched != asset || asset.status != newStatus) repository.save(enriched.copy(status = newStatus))
                 setImport("Scanning Local Folders for Images...", 0.5f + ((index + 1).toFloat() / all.size) * 0.5f)
             }
         }
@@ -188,10 +197,12 @@ class WorkbenchViewModel(
                     is ImageEdit.Replace -> {
                         val newPath = imageStore.write(record.id, slot, edit.bytes)
                         images[slot] = AssetImage(newPath)
+                        edit.original?.let { imageStore.writeOriginal(record.id, slot, it) }
                         if (oldPath != null && oldPath != newPath) obsolete += oldPath
                     }
                     ImageEdit.Clear -> {
                         images[slot] = AssetImage.Cleared
+                        imageStore.deleteOriginal(record.id, slot)
                         if (oldPath != null) obsolete += oldPath
                     }
                 }

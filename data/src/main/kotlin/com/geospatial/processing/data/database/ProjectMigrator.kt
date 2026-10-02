@@ -18,6 +18,8 @@ class ProjectMigrationException(message: String, cause: Throwable) : Exception(m
 /**
  * Upgrades a project database to the current schema (tracked in SQLite's `PRAGMA user_version`).
  *
+ * v4 (Phase 2): `assets.captured_at` is added (EXIF capture time). Backed up to `project.db.pre-v4.bak` first.
+ *
  * v3 (Phase 1): `geo_data` rows (fixed tower columns + image BLOBs) become `assets`, and every image
  * BLOB is written to <project>/images/<assetId>/. Safety:
  *  1. The database is copied to `project.db.pre-v3.bak` first (never deleted).
@@ -28,21 +30,38 @@ class ProjectMigrationException(message: String, cause: Throwable) : Exception(m
  */
 object ProjectMigrator {
 
-    const val SCHEMA_VERSION = 3
+    const val SCHEMA_VERSION = 4
+    private const val V3 = 3
     private val log = LoggerFactory.getLogger(ProjectMigrator::class.java)
 
     /** [dbFile] is the SQLite file behind [db]; [projectDir] receives the extracted images. */
     fun migrate(db: Database, dbFile: File, projectDir: File) {
         val version = transaction(db) { userVersion() }
-        if (version >= SCHEMA_VERSION) return
+        if (version < V3) migrateToV3(db, dbFile, projectDir)
+        if (version < SCHEMA_VERSION) migrateToV4(db, dbFile)
+    }
 
+    private fun migrateToV4(db: Database, dbFile: File) {
+        val hasColumn = transaction(db) { columnExists("assets", "captured_at") }
+        val backup = if (hasColumn) null else backup(dbFile, 4)
+        try {
+            transaction(db) {
+                if (!hasColumn) exec("ALTER TABLE assets ADD COLUMN captured_at INTEGER", explicitStatementType = StatementType.ALTER)
+                exec("PRAGMA user_version = $SCHEMA_VERSION", explicitStatementType = StatementType.OTHER)
+            }
+        } catch (e: Exception) {
+            throw ProjectMigrationException("Could not upgrade ${dbFile.parentFile?.name}; the project was left unchanged (backup: ${backup?.name}).", e)
+        }
+    }
+
+    private fun migrateToV3(db: Database, dbFile: File, projectDir: File) {
         if (!transaction(db) { tableExists(LegacyGeoData.TABLE) }) {
-            transaction(db) { exec("PRAGMA user_version = $SCHEMA_VERSION", explicitStatementType = StatementType.OTHER) }
+            transaction(db) { exec("PRAGMA user_version = $V3", explicitStatementType = StatementType.OTHER) }
             return
         }
 
-        val backup = backup(dbFile)
-        log.info("Migrating {} to schema v{} (backup: {})", dbFile, SCHEMA_VERSION, backup.name)
+        val backup = backup(dbFile, V3)
+        log.info("Migrating {} to schema v{} (backup: {})", dbFile, V3, backup.name)
 
         val imageStore = ImageStore(projectDir)
         val written = mutableListOf<String>()
@@ -58,9 +77,9 @@ object ProjectMigrator {
                 exec("ALTER TABLE ${LegacyGeoData.TABLE} RENAME TO ${LegacyGeoData.TABLE}_legacy", explicitStatementType = StatementType.ALTER)
                 AuditLogs.insert {
                     it[action] = "SCHEMA_MIGRATION"
-                    it[details] = "Migrated ${assets.size} records to schema v$SCHEMA_VERSION (backup ${backup.name})"
+                    it[details] = "Migrated ${assets.size} records to schema v$V3 (backup ${backup.name})"
                 }
-                exec("PRAGMA user_version = $SCHEMA_VERSION", explicitStatementType = StatementType.OTHER)
+                exec("PRAGMA user_version = $V3", explicitStatementType = StatementType.OTHER)
             }
         } catch (e: Exception) {
             written.forEach { imageStore.delete(it) }
@@ -70,10 +89,10 @@ object ProjectMigrator {
     }
 
     /** Consistent copy of the database next to it (VACUUM INTO works while other connections are idle). */
-    private fun backup(dbFile: File): File {
-        var target = File(dbFile.parentFile, "${dbFile.name}.pre-v$SCHEMA_VERSION.bak")
+    private fun backup(dbFile: File, version: Int): File {
+        var target = File(dbFile.parentFile, "${dbFile.name}.pre-v$version.bak")
         var n = 2
-        while (target.exists()) target = File(dbFile.parentFile, "${dbFile.name}.pre-v$SCHEMA_VERSION.${n++}.bak")
+        while (target.exists()) target = File(dbFile.parentFile, "${dbFile.name}.pre-v$version.${n++}.bak")
         DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { conn ->
             conn.prepareStatement("VACUUM INTO ?").use { st ->
                 st.setString(1, target.absolutePath)
@@ -85,6 +104,13 @@ object ProjectMigrator {
 
     private fun Transaction.userVersion(): Int =
         exec("PRAGMA user_version") { rs -> if (rs.next()) rs.getInt(1) else 0 } ?: 0
+
+    private fun Transaction.columnExists(table: String, column: String): Boolean =
+        exec("PRAGMA table_info($table)") { rs ->
+            var found = false
+            while (rs.next()) if (rs.getString("name") == column) found = true
+            found
+        } ?: false
 
     private fun Transaction.tableExists(name: String): Boolean =
         exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '$name'") { rs -> rs.next() } ?: false

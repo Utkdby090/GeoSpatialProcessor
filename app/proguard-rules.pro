@@ -54,3 +54,9 @@
 }
 -keepclasseswithmembers class **$$serializer { *; }
 -dontnote kotlinx.serialization.**
+
+# --- EXIF/GPS reading (metadata-extractor and its XMP dependency) ---
+-keep class com.drew.** { *; }
+-keep class com.adobe.xmp.** { *; }
+-dontwarn com.drew.**
+-dontwarn com.adobe.xmp.**

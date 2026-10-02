@@ -12,6 +12,7 @@ import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
+import java.time.Instant
 import java.time.LocalDateTime
 
 /** Assets of ONE project database. Every call runs in a transaction bound to [database]. */
@@ -79,6 +80,7 @@ internal object AssetRows {
         longitude = row[AssetsTable.longitude],
         properties = json.decodeFromString<Map<String, String>>(row[AssetsTable.propertiesJson]),
         images = images,
+        capturedAt = row[AssetsTable.capturedAt]?.let(Instant::ofEpochMilli),
     )
 
     /** Must run inside a transaction. */
@@ -92,6 +94,7 @@ internal object AssetRows {
             it[latitude] = asset.latitude
             it[longitude] = asset.longitude
             it[propertiesJson] = json.encodeToString(asset.properties)
+            it[capturedAt] = asset.capturedAt?.toEpochMilli()
             it[updatedAt] = now
         }
         AssetImagesTable.deleteWhere { assetId eq asset.id }
