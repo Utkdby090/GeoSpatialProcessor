@@ -55,4 +55,33 @@ class AssetImageResolverTest {
         assertTrue(resolver.isReady(asset("T1"), root.path))
         assertFalse(resolver.isReady(asset("T2"), root.path))
     }
+
+    // --- originalFile -----------------------------------------------------------------------------
+
+    @Test
+    fun `original kept in the project wins over the display image and the folder`() {
+        folderImages("T1", "A")
+        manualImage("images/x/A.jpg")
+        manualImage("images/x/A.orig.jpg").writeText("original")
+        val a = asset("T1").copy(id = "x", images = mapOf("A" to AssetImage("images/x/A.jpg")))
+
+        assertEquals("original", resolver.originalFile(a, "A", root.path)!!.readText())
+    }
+
+    @Test
+    fun `folder images are their own original`() {
+        folderImages("T1", "A")
+
+        assertEquals("folder", resolver.originalFile(asset("T1"), "A", root.path)!!.readText())
+    }
+
+    @Test
+    fun `cleared or empty slots have no original`() {
+        folderImages("T1", "A")
+        manualImage("images/x/A.orig.jpg")
+        val cleared = asset("T1").copy(id = "x", images = mapOf("A" to AssetImage.Cleared))
+
+        assertEquals(null, resolver.originalFile(cleared, "A", root.path))
+        assertEquals(null, resolver.originalFile(asset("T9"), "B", root.path))
+    }
 }

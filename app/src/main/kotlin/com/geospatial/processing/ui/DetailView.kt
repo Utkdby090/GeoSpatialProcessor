@@ -175,6 +175,29 @@ fun DetailView(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
+                // --- THERMAL ANALYSIS (temperatures from the radiometric original of the thermal slot) ---
+                slots.firstOrNull { it.isThermal }?.let { thermal ->
+                    val edit = imageEdits[thermal.id]
+                    ThermalPanel(
+                        loadKey = Triple(record.id, rootDir, edit),
+                        loadBytes = {
+                            when (edit) {
+                                ImageEdit.Clear -> null
+                                // An annotation has no original of its own; the one stored for the slot still applies.
+                                is ImageEdit.Replace -> edit.original ?: imageResolver.originalFile(record, thermal.id, rootDir)?.readBytes()
+                                null -> imageResolver.originalFile(record, thermal.id, rootDir)?.readBytes()
+                            }
+                        },
+                        overrides = plugin.thermalOverrides(values.toMap()),
+                        onApply = { stats ->
+                            plugin.thermalFindings(stats, values.toMap()).forEach { (key, value) ->
+                                values[key] = value
+                                errors = errors - key
+                            }
+                        },
+                    )
+                }
+
                 // --- REMAINING FIELD GROUPS ---
                 groups.drop(1).forEach { (name, fields) -> FieldGroup(name, fields) }
                 Spacer(modifier = Modifier.height(56.dp))

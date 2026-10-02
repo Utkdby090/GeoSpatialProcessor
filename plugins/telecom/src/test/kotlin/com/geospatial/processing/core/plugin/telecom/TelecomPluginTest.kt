@@ -1,5 +1,8 @@
 package com.geospatial.processing.core.plugin.telecom
 
+import com.geospatial.processing.domain.thermal.ThermalStats
+import com.geospatial.processing.domain.thermal.ThermalOverrides
+import com.geospatial.processing.domain.thermal.Pixel
 import com.geospatial.processing.core.plugin.CoreFields
 import com.geospatial.processing.core.plugin.telecom.TelecomKeys as K
 import com.geospatial.processing.domain.model.Asset
@@ -137,5 +140,39 @@ class TelecomPluginTest {
         assertTrue(text.contains("Hot joint"))
         assertTrue(text.contains("LOAD CKT1"))
         assertTrue(text.contains("75_0") && text.contains("77_0"), "navigator shows neighbours")
+    }
+
+    // --- thermal ----------------------------------------------------------------------------------
+
+    @Test
+    fun `only the thermal slot is marked thermal`() {
+        val thermal = plugin.imageSlots(asset()).filter { it.isThermal }
+
+        assertEquals(listOf(K.SLOT_THERMAL), thermal.map { it.id })
+    }
+
+    @Test
+    fun `form values become thermal scene settings, ignoring junk and out-of-range numbers`() {
+        val ok = plugin.thermalOverrides(mapOf(K.EMISSIVITY to "0,92", K.AMBIENT_TEMP to " 31.5 ", K.HUMIDITY to "55"))
+        assertEquals(0.92, ok.emissivity)
+        assertEquals(31.5, ok.atmosphericTempC)
+        assertEquals(31.5, ok.reflectedTempC)
+        assertEquals(55.0, ok.humidityPct)
+
+        val bad = plugin.thermalOverrides(mapOf(K.EMISSIVITY to "1.7", K.AMBIENT_TEMP to "warm", K.HUMIDITY to "140"))
+        assertEquals(ThermalOverrides(), bad)
+        assertEquals(ThermalOverrides(), plugin.thermalOverrides(emptyMap()))
+    }
+
+    @Test
+    fun `thermal findings fill the fault temperature and the rise over ambient`() {
+        val stats = ThermalStats(20f, 78.46f, 30f, Pixel(0, 0), Pixel(3, 2), 100)
+
+        assertEquals(
+            mapOf(K.FAULT_TEMP to "78.5", K.RISE_TEMP to "47.5"),
+            plugin.thermalFindings(stats, mapOf(K.AMBIENT_TEMP to "31")),
+        )
+        // Without a usable ambient temperature there is no rise to report.
+        assertEquals(mapOf(K.FAULT_TEMP to "78.5"), plugin.thermalFindings(stats, emptyMap()))
     }
 }
