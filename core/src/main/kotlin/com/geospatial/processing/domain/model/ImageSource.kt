@@ -3,6 +3,13 @@ package com.geospatial.processing.domain.model
 import com.geospatial.processing.core.plugin.DomainPlugin
 import java.io.File
 
+/** File naming shared by the project's image store (:data) and the resolver. */
+object ImageFiles {
+    const val DIR = "images"
+    /** `<slot>.orig.<ext>` is the untouched upload kept next to the display image `<slot>.<ext>`. */
+    const val ORIGINAL_INFIX = ".orig."
+}
+
 sealed class ImageSource {
     /** Image bytes not saved yet (e.g. a fresh upload in the form). */
     data class FromBlob(val bytes: ByteArray) : ImageSource()
@@ -30,6 +37,20 @@ class AssetImageResolver(private val plugin: DomainPlugin, private val projectDi
             }
             slot.id to source
         }
+    }
+
+    /**
+     * The untouched file behind a slot, which still has EXIF/radiometric data: the original kept in the project
+     * when the user uploaded the image, otherwise the image file itself (a folder match is never re-encoded).
+     * Null for an empty slot.
+     */
+    fun originalFile(asset: Asset, slotId: String, rootDir: String): File? {
+        val kept = File(projectDir, "${ImageFiles.DIR}/${asset.id}").listFiles { f ->
+            f.isFile && f.name.startsWith("$slotId${ImageFiles.ORIGINAL_INFIX}") && !f.name.endsWith(".tmp")
+        }?.minByOrNull { it.name }
+        if (asset.images[slotId]?.cleared == true) return null
+        if (kept != null) return kept
+        return (resolve(asset, rootDir)[slotId] as? ImageSource.FromFile)?.file
     }
 
     /** An asset is READY when every slot has an image (manual or from the folder). */

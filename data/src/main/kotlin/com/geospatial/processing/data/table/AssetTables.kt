@@ -15,6 +15,8 @@ object AssetsTable : Table("assets") {
     val longitude = double("longitude")
     /** JSON object of string → string. */
     val propertiesJson = text("properties_json")
+    /** Epoch milliseconds of the earliest image capture (EXIF), null if unknown. Added in schema v4. */
+    val capturedAt = long("captured_at").nullable()
     val createdAt = datetime("created_at").clientDefault { LocalDateTime.now() }
     val updatedAt = datetime("updated_at").clientDefault { LocalDateTime.now() }
 

@@ -2,6 +2,8 @@ package com.geospatial.processing.core.plugin
 
 import com.geospatial.processing.domain.model.Asset
 import com.geospatial.processing.domain.model.AssetDraft
+import com.geospatial.processing.domain.thermal.ThermalOverrides
+import com.geospatial.processing.domain.thermal.ThermalStats
 import java.io.File
 import java.io.OutputStream
 
@@ -32,8 +34,11 @@ object CoreFields {
     const val LONGITUDE = "core.longitude"
 }
 
-/** One image slot on the form and the report, e.g. id "THERMAL", label "Thermal Image". */
-data class ImageSlotDef(val id: String, val label: String)
+/**
+ * One image slot on the form and the report, e.g. id "THERMAL", label "Thermal Image".
+ * [isThermal] marks a slot that holds radiometric images, which get a temperature readout in the form.
+ */
+data class ImageSlotDef(val id: String, val label: String, val isThermal: Boolean = false)
 
 /** How an asset is named and classified in lists, the form and reports. */
 data class AssetPresentation(
@@ -73,6 +78,12 @@ interface DomainPlugin {
 
     /** How to draw this industry's PDF report. */
     fun getReportStrategy(): ReportStrategy
+
+    /** Scene settings (emissivity, ambient temperature…) from the form values, which refine the temperatures in thermal images. */
+    fun thermalOverrides(properties: Map<String, String>): ThermalOverrides = ThermalOverrides()
+
+    /** Property values to fill in from what a thermal analysis found (e.g. the fault temperature); empty = nothing to fill. */
+    fun thermalFindings(stats: ThermalStats, properties: Map<String, String>): Map<String, String> = emptyMap()
 }
 
 interface CsvImportStrategy {

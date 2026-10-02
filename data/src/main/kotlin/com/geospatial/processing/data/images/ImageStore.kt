@@ -1,5 +1,6 @@
 package com.geospatial.processing.data.images
 
+import com.geospatial.processing.domain.model.ImageFiles
 import java.io.File
 
 /**
@@ -24,6 +25,32 @@ class ImageStore(private val projectDir: File) {
         return relativePath
     }
 
+    /**
+     * Keeps the untouched file the user picked next to the display image, as `<slot>.orig.<ext>`.
+     * Display images are re-encoded (smaller, no EXIF); radiometric temperatures and GPS only survive in the original.
+     * Any earlier original of that slot is replaced, whatever its extension.
+     */
+    fun writeOriginal(assetId: String, slot: String, bytes: ByteArray) {
+        require(SAFE_NAME.matches(assetId) && SAFE_NAME.matches(slot)) { "Unsafe image name: $assetId/$slot" }
+        deleteOriginal(assetId, slot)
+        val target = File(imagesDir, "$assetId/$slot$ORIGINAL_MARKER${extensionOf(bytes)}")
+        target.parentFile.mkdirs()
+        val tmp = File(target.parentFile, target.name + ".tmp")
+        tmp.writeBytes(bytes)
+        check(tmp.renameTo(target)) { "Could not write image $target" }
+    }
+
+    /** The original file kept for [assetId]/[slot], if any. */
+    fun originalFile(assetId: String, slot: String): File? {
+        if (!SAFE_NAME.matches(assetId) || !SAFE_NAME.matches(slot)) return null
+        return File(imagesDir, assetId).listFiles { f -> f.isFile && f.name.startsWith("$slot$ORIGINAL_MARKER") && !f.name.endsWith(".tmp") }
+            ?.minByOrNull { it.name }
+    }
+
+    fun deleteOriginal(assetId: String, slot: String) {
+        originalFile(assetId, slot)?.delete()
+    }
+
     /** The file for [relativePath], or null if the path would point outside this project's images folder. */
     fun file(relativePath: String): File? {
         val file = File(projectDir, relativePath).canonicalFile
@@ -44,7 +71,8 @@ class ImageStore(private val projectDir: File) {
     }
 
     companion object {
-        const val IMAGES_DIR = "images"
+        const val IMAGES_DIR = ImageFiles.DIR
+        private const val ORIGINAL_MARKER = ImageFiles.ORIGINAL_INFIX
         private val SAFE_NAME = Regex("[A-Za-z0-9_-]+")
 
         /** File type from the first bytes; the app only accepts JPEG and PNG uploads. */
