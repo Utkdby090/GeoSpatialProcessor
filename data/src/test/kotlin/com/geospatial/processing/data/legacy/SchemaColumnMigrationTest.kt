@@ -4,6 +4,7 @@ import com.geospatial.processing.data.database.ProjectMigrator
 import com.geospatial.processing.data.database.ProjectSession
 import com.geospatial.processing.data.repository.AssetRepository
 import com.geospatial.processing.domain.model.Asset
+import com.geospatial.processing.domain.model.Severity
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.nio.file.Files
@@ -16,7 +17,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class SchemaV4MigrationTest {
+class SchemaColumnMigrationTest {
 
     private val projectDir: File = Files.createTempDirectory("v4").toFile()
     private val dbFile = File(projectDir, "project.db")
@@ -34,7 +35,7 @@ class SchemaV4MigrationTest {
     /** A project exactly as v3 left it: assets without captured_at, user_version 3. */
     private fun createV3Project(asset: Asset) {
         ProjectSession.open(projectDir).use { s -> runBlocking { AssetRepository(s.database).save(asset) } }
-        sql("ALTER TABLE assets DROP COLUMN captured_at", "PRAGMA user_version = 3")
+        sql("ALTER TABLE assets DROP COLUMN captured_at", "ALTER TABLE assets DROP COLUMN severity", "PRAGMA user_version = 3")
     }
 
     private val asset = Asset(id = "a1", pluginId = "p", position = 0, latitude = 1.5, longitude = 2.5, properties = mapOf("k" to "v"))
@@ -49,6 +50,8 @@ class SchemaV4MigrationTest {
         assertNull(loaded.single().capturedAt)
         assertEquals(ProjectMigrator.SCHEMA_VERSION, LegacyFixtures.userVersion(dbFile))
         assertTrue(File(projectDir, "project.db.pre-v4.bak").exists())
+        assertFalse(File(projectDir, "project.db.pre-v5.bak").exists(), "one backup covers the whole chain")
+        assertEquals(Severity.NONE, loaded.single().severity)
     }
 
     @Test
@@ -83,5 +86,35 @@ class SchemaV4MigrationTest {
 
         assertFalse(File(projectDir, "project.db.pre-v4.bak").exists())
         assertEquals(ProjectMigrator.SCHEMA_VERSION, LegacyFixtures.userVersion(dbFile))
+    }
+
+    @Test
+    fun `v4 project gets the severity column with its own backup`() {
+        ProjectSession.open(projectDir).use { s -> runBlocking { AssetRepository(s.database).save(asset) } }
+        sql("ALTER TABLE assets DROP COLUMN severity", "PRAGMA user_version = 4")
+
+        val loaded = ProjectSession.open(projectDir).use { s -> runBlocking { AssetRepository(s.database).getAll() } }
+
+        assertEquals(listOf(asset), loaded)
+        assertEquals(ProjectMigrator.SCHEMA_VERSION, LegacyFixtures.userVersion(dbFile))
+        assertTrue(File(projectDir, "project.db.pre-v5.bak").exists())
+        assertFalse(File(projectDir, "project.db.pre-v4.bak").exists())
+    }
+
+    @Test
+    fun `severity is stored and read back, unknown names count as none`() {
+        val loaded = ProjectSession.open(projectDir).use { s ->
+            runBlocking {
+                val repo = AssetRepository(s.database)
+                repo.save(asset.copy(severity = Severity.HIGH))
+                repo.save(asset.copy(id = "a2", position = 1))
+                repo.getAll()
+            }
+        }
+        assertEquals(listOf(Severity.HIGH, Severity.NONE), loaded.map { it.severity })
+
+        sql("UPDATE assets SET severity = 'FROM_THE_FUTURE' WHERE id = 'a1'")
+        val again = ProjectSession.open(projectDir).use { s -> runBlocking { AssetRepository(s.database).getAll() } }
+        assertEquals(Severity.NONE, again.first().severity)
     }
 }

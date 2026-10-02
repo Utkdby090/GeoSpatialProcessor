@@ -17,6 +17,8 @@ object AssetsTable : Table("assets") {
     val propertiesJson = text("properties_json")
     /** Epoch milliseconds of the earliest image capture (EXIF), null if unknown. Added in schema v4. */
     val capturedAt = long("captured_at").nullable()
+    /** [com.geospatial.processing.domain.model.Severity] name. Added in schema v5. */
+    val severity = varchar("severity", 20).default("NONE")
     val createdAt = datetime("created_at").clientDefault { LocalDateTime.now() }
     val updatedAt = datetime("updated_at").clientDefault { LocalDateTime.now() }
 

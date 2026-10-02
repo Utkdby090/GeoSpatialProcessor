@@ -28,6 +28,8 @@ data class Asset(
     val images: Map<String, AssetImage> = emptyMap(),
     /** When the earliest image of this asset was captured (EXIF), if known. */
     val capturedAt: Instant? = null,
+    /** How urgent this asset's finding is; worked out by the plugin ([com.geospatial.processing.core.plugin.DomainPlugin.classify]) and stored. */
+    val severity: Severity = Severity.NONE,
 ) {
     /** The property value, or "" when absent. */
     fun property(key: String): String = properties[key].orEmpty()

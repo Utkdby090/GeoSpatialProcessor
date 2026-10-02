@@ -75,7 +75,7 @@ internal object FlirFixtures {
     }
 
     private fun params(scene: Scene, order: ByteOrder): ByteArray {
-        val buf = ByteBuffer.allocate(0x200).order(order)
+        val buf = ByteBuffer.allocate(0x400).order(order)
         buf.putShort(0, 2)
         buf.putFloat(0x20, scene.emissivity)
         buf.putFloat(0x24, scene.distanceM)
@@ -92,8 +92,8 @@ internal object FlirFixtures {
         buf.putFloat(0x78, -0.002276f)
         buf.putFloat(0x7C, -0.00667f)
         buf.putFloat(0x80, 1.9f)
-        buf.putInt(0x1E0, O)
-        buf.putFloat(0x1E4, R2.toFloat())
+        buf.putInt(0x308, O)
+        buf.putFloat(0x30C, R2.toFloat())
         return buf.array()
     }
 
