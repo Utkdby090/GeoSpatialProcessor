@@ -1,5 +1,6 @@
 package com.geospatial.processing.data.images
 
+import com.geospatial.processing.domain.model.ImageFiles
 import java.io.File
 
 /**
@@ -70,8 +71,8 @@ class ImageStore(private val projectDir: File) {
     }
 
     companion object {
-        const val IMAGES_DIR = "images"
-        private const val ORIGINAL_MARKER = ".orig."
+        const val IMAGES_DIR = ImageFiles.DIR
+        private const val ORIGINAL_MARKER = ImageFiles.ORIGINAL_INFIX
         private val SAFE_NAME = Regex("[A-Za-z0-9_-]+")
 
         /** File type from the first bytes; the app only accepts JPEG and PNG uploads. */
