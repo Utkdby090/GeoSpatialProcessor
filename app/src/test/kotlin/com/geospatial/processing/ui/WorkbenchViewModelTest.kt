@@ -242,6 +242,84 @@ class WorkbenchViewModelTest {
         assertTrue(firstPdfText(second).contains("ACME GRID"))
     }
 
+    // --- GeoPackage ---------------------------------------------------------------------------------
+
+    @Test
+    fun `a GeoPackage export imports back into an emptied project with the same towers`() = runBlocking {
+        completeImageFolder("VMT-2")
+        importTowers("VMT-1", "VMT-2", "VMT-3")
+        val before = vm.state.value.records
+        val gpkg = File(root, "towers.gpkg")
+
+        vm.exportGeoPackage(gpkg).join()
+        assertTrue(vm.state.value.notice!!.startsWith("Exported 3 towers"))
+        assertNull(vm.state.value.exportProgress)
+
+        vm.onAction(WorkbenchAction.DismissNotice)
+        vm.exportZip(File(root, "unused.zip")).join() // unrelated action in between must not disturb anything
+        vm.clearAll().join()
+        assertTrue(vm.state.value.records.isEmpty())
+
+        vm.importGeoPackage(gpkg).join()
+
+        assertEquals(before.map { it.id }, vm.state.value.records.map { it.id })
+        assertEquals(towers(), listOf("VMT-1", "VMT-2", "VMT-3"))
+        assertEquals("Imported 3 towers.", vm.state.value.notice)
+        assertNull(vm.state.value.importProgress)
+        // Images come from the folder again: VMT-2 has them, so only it is READY.
+        assertEquals(listOf(RecordStatus.DRAFT, RecordStatus.READY, RecordStatus.DRAFT), vm.state.value.records.map { it.status })
+    }
+
+    @Test
+    fun `importing the same GeoPackage twice adds nothing the second time`() = runBlocking {
+        importTowers("VMT-1", "VMT-2")
+        val gpkg = File(root, "towers.gpkg")
+        vm.exportGeoPackage(gpkg).join()
+
+        vm.importGeoPackage(gpkg).join()
+
+        assertEquals(2, vm.state.value.records.size)
+        assertTrue(vm.state.value.notice!!.contains("2 already in this project"), vm.state.value.notice)
+    }
+
+    @Test
+    fun `towers of another project type are skipped`() = runBlocking {
+        importTowers("VMT-1")
+        val gpkg = File(root, "towers.gpkg")
+        vm.exportGeoPackage(gpkg).join()
+        vm.clearAll().join()
+        java.sql.DriverManager.getConnection("jdbc:sqlite:${gpkg.absolutePath}").use { c ->
+            c.createStatement().use { it.execute("UPDATE assets SET plugin_id = 'com.other.plugin'") }
+        }
+
+        vm.importGeoPackage(gpkg).join()
+
+        assertTrue(vm.state.value.records.isEmpty())
+        assertTrue(vm.state.value.notice!!.contains("different project type"), vm.state.value.notice)
+    }
+
+    @Test
+    fun `a file that is not a GeoPackage is reported and changes nothing`() = runBlocking {
+        importTowers("VMT-1")
+        val bogus = File(root, "bogus.gpkg").apply { writeText("not a database") }
+
+        vm.importGeoPackage(bogus).join()
+
+        assertTrue(vm.state.value.notice!!.startsWith("GeoPackage import failed"), vm.state.value.notice)
+        assertEquals(listOf("VMT-1"), towers())
+        assertNull(vm.state.value.importProgress)
+    }
+
+    @Test
+    fun `a GeoPackage export to an unwritable place is reported`() = runBlocking {
+        importTowers("VMT-1")
+
+        vm.exportGeoPackage(File(root, "no-such-folder/out.gpkg")).join()
+
+        assertTrue(vm.state.value.notice!!.startsWith("GeoPackage export failed"), vm.state.value.notice)
+        assertNull(vm.state.value.exportProgress)
+    }
+
     @Test
     fun `export with nothing ready writes no zip`() = runBlocking {
         importTowers("VMT-1")
