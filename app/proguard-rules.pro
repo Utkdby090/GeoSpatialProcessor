@@ -15,6 +15,10 @@
 -keep class androidx.compose.** { *; }
 -keepclassmembers class androidx.compose.** { *; }
 
+# --- SHIELD 1b: MAP VIEW (MapCompose, kotlinx-io) ---
+-keep class ovh.plrapps.mapcompose.** { *; }
+-dontwarn kotlinx.io.**
+
 # --- SHIELD 2: CONCURRENCY (Coroutines) ---
 -keep class kotlinx.coroutines.** { *; }
 -keepclassmembers class kotlinx.coroutines.** { *; }

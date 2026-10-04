@@ -15,6 +15,11 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
+    implementation(libs.mapcompose) {
+        // Its published runtime metadata names the macOS-arm64 Compose runtime; currentOs above already picks the right one.
+        exclude(group = "org.jetbrains.compose.desktop", module = "desktop-jvm-macos-arm64")
+    }
+    implementation(libs.kotlinx.io.core)
 
     // --- Architecture: ViewModels + Koin DI ---
     implementation(libs.lifecycle.viewmodel.compose)

@@ -198,6 +198,10 @@ fun FrameWindowScope.MainScreen(
                             Text("The app is now automatically syncing photos from your root directory:", color = MaterialTheme.colorScheme.onSurface)
                             Text(text = state.rootImageDirectory, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(vertical = 8.dp))
                             Text("Please ensure your tower folders (e.g., '76_0') are placed in this location to view the images.", color = MaterialTheme.colorScheme.onSurface)
+                            state.importWarning?.let {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(it, color = MaterialTheme.colorScheme.error)
+                            }
                         }
                     },
                     confirmButton = {
@@ -212,7 +216,7 @@ fun FrameWindowScope.MainScreen(
                 AlertDialog(
                     onDismissRequest = { onAction(WorkbenchAction.DismissNotice) },
                     containerColor = MaterialTheme.colorScheme.surface,
-                    title = { Text("GeoPackage", color = MaterialTheme.colorScheme.onSurface) },
+                    title = { Text("Notice", color = MaterialTheme.colorScheme.onSurface) },
                     text = { Text(notice, color = MaterialTheme.colorScheme.onSurface) },
                     confirmButton = { Button(onClick = { onAction(WorkbenchAction.DismissNotice) }) { Text("OK") } },
                 )
@@ -236,7 +240,9 @@ fun FrameWindowScope.MainScreen(
                     plugin = plugin,
                     tileLoader = tileLoader,
                     isDarkTheme = state.isDarkTheme,
+                    positionIssues = state.positionIssues,
                     onSelect = { onAction(WorkbenchAction.Select(it)) },
+                    onFixSwapped = { onAction(WorkbenchAction.FixSwappedPositions) },
                     onDismiss = { showMap = false },
                 )
             }
