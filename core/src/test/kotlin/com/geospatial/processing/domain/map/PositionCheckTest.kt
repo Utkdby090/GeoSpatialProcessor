@@ -5,6 +5,7 @@ import com.geospatial.processing.domain.map.PositionIssue.Outlier
 import com.geospatial.processing.domain.map.PositionIssue.Swapped
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -70,5 +71,26 @@ class PositionCheckTest {
         val long = (0 until 100).associate { "t$it" to GeoPoint(27.0 + it * 0.027, 73.0) }
 
         assertEquals(emptyList(), PositionCheck.check(long))
+    }
+
+    @Test
+    fun `a whole line with latitude and longitude exchanged is recognised from where it lands`() {
+        val allSwapped = line.mapValues { it.value.swapped() } // Rajasthan swapped lands in the Barents Sea
+
+        assertEquals(emptyList(), PositionCheck.check(allSwapped), "every point agrees with the others")
+        assertTrue(PositionCheck.likelyAllSwapped(allSwapped.values))
+        assertFalse(PositionCheck.likelyAllSwapped(line.values))
+        // A polar site whose swapped values are not a position at all (McMurdo) is left alone.
+        assertFalse(PositionCheck.likelyAllSwapped(listOf(GeoPoint(-77.8, 166.7))))
+    }
+
+    @Test
+    fun `a photo's GPS fix shows when one position is swapped`() {
+        val tower = GeoPoint(27.5, 71.9)
+        val photo = GeoPoint(27.5003, 71.9004)
+
+        assertTrue(PositionCheck.swappedComparedTo(tower.swapped(), photo))
+        assertFalse(PositionCheck.swappedComparedTo(tower, photo))
+        assertFalse(PositionCheck.swappedComparedTo(GeoPoint(12.9, 77.6), photo), "far either way: not a swap")
     }
 }

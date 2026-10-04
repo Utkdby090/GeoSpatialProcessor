@@ -66,6 +66,11 @@ data class WorkbenchUiState(
         PositionCheck.check(records.associate { it.id to GeoPoint(it.latitude, it.longitude) })
     }
 
+    /** True when every position probably has latitude and longitude exchanged (the project lands in the polar regions). */
+    val allPositionsLookSwapped: Boolean by lazy {
+        PositionCheck.likelyAllSwapped(records.map { GeoPoint(it.latitude, it.longitude) })
+    }
+
     /** All records in import order (or reversed). Neighbours come from here, so a filter never changes who is next to a tower. */
     private val orderedRecords: List<Asset> get() = if (sortAscending) records else records.reversed()
 
@@ -118,6 +123,8 @@ sealed interface WorkbenchAction {
     data object DismissNotice : WorkbenchAction
     /** Swaps latitude and longitude back on every tower [WorkbenchUiState.positionIssues] reports as swapped. */
     data object FixSwappedPositions : WorkbenchAction
+    /** Swaps latitude and longitude on every tower that has a position (for a CSV whose columns were exchanged). Doing it twice undoes it. */
+    data object SwapAllPositions : WorkbenchAction
 }
 
 /** State and logic of one open project's workbench. Lives in the project's Koin scope. */
@@ -167,6 +174,7 @@ class WorkbenchViewModel(
             is WorkbenchAction.ImportGeoPackage -> importGeoPackage(action.file)
             WorkbenchAction.DismissNotice -> _state.update { it.copy(notice = null) }
             WorkbenchAction.FixSwappedPositions -> fixSwappedPositions()
+            WorkbenchAction.SwapAllPositions -> swapAllPositions()
         }
     }
 
@@ -207,6 +215,10 @@ class WorkbenchViewModel(
 
     /** What the user should know about suspicious positions after an import; null when all look right. */
     private fun positionWarning(state: WorkbenchUiState): String? {
+        if (state.allPositionsLookSwapped) {
+            return "The towers land in the polar regions, so the Lat. and Long. columns are probably swapped.\n" +
+                "Open the map to swap them back for all towers in one click."
+        }
         val issues = state.positionIssues
         if (issues.isEmpty()) return null
         val byId = state.records.associateBy { it.id }
@@ -220,6 +232,17 @@ class WorkbenchViewModel(
             if (other.isNotEmpty()) append("\nFar from the rest or not a valid position: ${names(other)}.")
             append("\nOpen the map to review them; swapped ones can be fixed there in one click.")
         }
+    }
+
+    private fun swapAllPositions(): Job = viewModelScope.launch {
+        val count = withContext(io) {
+            repository.getAll()
+                .filter { !(it.latitude == 0.0 && it.longitude == 0.0) && GeoPoint(it.longitude, it.latitude).isValid }
+                .onEach { repository.save(it.copy(latitude = it.longitude, longitude = it.latitude)) }
+                .size
+        }
+        val records = loadRecords()
+        _state.update { it.copy(records = records, notice = "Swapped latitude and longitude for $count tower${if (count == 1) "" else "s"}.") }
     }
 
     private fun fixSwappedPositions(): Job = viewModelScope.launch {

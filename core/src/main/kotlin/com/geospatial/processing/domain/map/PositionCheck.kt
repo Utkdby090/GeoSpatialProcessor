@@ -1,5 +1,6 @@
 package com.geospatial.processing.domain.map
 
+import kotlin.math.abs
 import kotlin.math.max
 
 /** Something wrong with one item's position. [id] is the caller's key for the item. */
@@ -80,6 +81,34 @@ object PositionCheck {
             }
         }
         return issues
+    }
+
+    /** Beyond the Arctic/Antarctic circles: where few projects are, but where swapped low-latitude coordinates land. */
+    private const val POLAR_LAT = 66.5
+
+    /** A photo is taken within this distance of the tower it shows. */
+    private const val PHOTO_DISTANCE_KM = 5.0
+
+    /**
+     * True when the whole project probably has latitude and longitude exchanged: the middle of its positions lies in the
+     * polar regions while the swapped middle does not. [check] cannot see this, because then every point agrees with
+     * the others. It is a hint for asking the user, not proof.
+     */
+    fun likelyAllSwapped(points: Collection<GeoPoint>): Boolean {
+        val usable = points.filter { !(it.lat == 0.0 && it.lon == 0.0) && it.isValid }
+        if (usable.isEmpty()) return false
+        val middle = GeoPoint(median(usable.map { it.lat }), median(usable.map { it.lon }))
+        val back = middle.swapped()
+        return abs(middle.lat) > POLAR_LAT && back.isValid && abs(back.lat) <= POLAR_LAT
+    }
+
+    /**
+     * True when [position] has latitude and longitude exchanged, judged against [photo], the GPS fix of a photo of the
+     * same item: the stored position is far from the photo but the swapped one is right next to it.
+     */
+    fun swappedComparedTo(position: GeoPoint, photo: GeoPoint): Boolean {
+        val back = position.swapped()
+        return back.isValid && position.distanceKm(photo) > PHOTO_DISTANCE_KM && back.distanceKm(photo) <= PHOTO_DISTANCE_KM
     }
 
     private fun median(values: List<Double>): Double {
