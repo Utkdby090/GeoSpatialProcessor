@@ -8,6 +8,9 @@ import com.geospatial.processing.data.geopackage.GeoPackageException
 import com.geospatial.processing.data.images.ImageStore
 import com.geospatial.processing.data.repository.AssetRepository
 import com.geospatial.processing.domain.imaging.metadata.ImageIngestor
+import com.geospatial.processing.domain.map.GeoPoint
+import com.geospatial.processing.domain.map.PositionCheck
+import com.geospatial.processing.domain.map.PositionIssue
 import com.geospatial.processing.domain.model.Asset
 import com.geospatial.processing.domain.model.AssetImage
 import com.geospatial.processing.domain.model.AssetImageResolver
@@ -47,6 +50,8 @@ data class WorkbenchUiState(
     /** Non-null while a PDF export runs (and briefly afterwards, to show the result). */
     val exportProgress: ProgressState? = null,
     val showImportSuccess: Boolean = false,
+    /** Shown in the import result when some imported positions look wrong; null when all look right. */
+    val importWarning: String? = null,
     /** The list shows only assets at least this severe; [Severity.NONE] shows everything. */
     val minSeverity: Severity = Severity.NONE,
     /** Most severe first in the list (ties keep the import/sort order). */
@@ -56,6 +61,11 @@ data class WorkbenchUiState(
     /** A result the user should read (e.g. what a GeoPackage import did); null when there is none. */
     val notice: String? = null,
 ) {
+    /** Positions that look wrong across the whole project (not only the filtered list), worked out once per state. */
+    val positionIssues: List<PositionIssue> by lazy {
+        PositionCheck.check(records.associate { it.id to GeoPoint(it.latitude, it.longitude) })
+    }
+
     /** All records in import order (or reversed). Neighbours come from here, so a filter never changes who is next to a tower. */
     private val orderedRecords: List<Asset> get() = if (sortAscending) records else records.reversed()
 
@@ -106,6 +116,8 @@ sealed interface WorkbenchAction {
     data class ExportGeoPackage(val file: File) : WorkbenchAction
     data class ImportGeoPackage(val file: File) : WorkbenchAction
     data object DismissNotice : WorkbenchAction
+    /** Swaps latitude and longitude back on every tower [WorkbenchUiState.positionIssues] reports as swapped. */
+    data object FixSwappedPositions : WorkbenchAction
 }
 
 /** State and logic of one open project's workbench. Lives in the project's Koin scope. */
@@ -150,10 +162,11 @@ class WorkbenchViewModel(
             is WorkbenchAction.SetMinSeverity -> _state.update { it.copy(minSeverity = action.min) }
             WorkbenchAction.ToggleSeveritySort -> _state.update { it.copy(sortBySeverity = !it.sortBySeverity) }
             WorkbenchAction.ToggleTheme -> _state.update { it.copy(isDarkTheme = !it.isDarkTheme) }
-            WorkbenchAction.DismissImportSuccess -> _state.update { it.copy(showImportSuccess = false) }
+            WorkbenchAction.DismissImportSuccess -> _state.update { it.copy(showImportSuccess = false, importWarning = null) }
             is WorkbenchAction.ExportGeoPackage -> exportGeoPackage(action.file)
             is WorkbenchAction.ImportGeoPackage -> importGeoPackage(action.file)
             WorkbenchAction.DismissNotice -> _state.update { it.copy(notice = null) }
+            WorkbenchAction.FixSwappedPositions -> fixSwappedPositions()
         }
     }
 
@@ -189,6 +202,41 @@ class WorkbenchViewModel(
 
         val records = loadRecords()
         _state.update { it.copy(records = records, importProgress = null, showImportSuccess = true) }
+        _state.update { it.copy(importWarning = positionWarning(it)) }
+    }
+
+    /** What the user should know about suspicious positions after an import; null when all look right. */
+    private fun positionWarning(state: WorkbenchUiState): String? {
+        val issues = state.positionIssues
+        if (issues.isEmpty()) return null
+        val byId = state.records.associateBy { it.id }
+        fun names(list: List<PositionIssue>) = list.mapNotNull { byId[it.id]?.let { a -> plugin.present(a).sequenceLabel } }
+            .let { n -> n.take(5).joinToString(", ") + if (n.size > 5) " and ${n.size - 5} more" else "" }
+        val swapped = issues.filterIsInstance<PositionIssue.Swapped>()
+        val other = issues - swapped.toSet()
+        return buildString {
+            append("Some positions look wrong.")
+            if (swapped.isNotEmpty()) append("\nLatitude and longitude look swapped for ${names(swapped)}.")
+            if (other.isNotEmpty()) append("\nFar from the rest or not a valid position: ${names(other)}.")
+            append("\nOpen the map to review them; swapped ones can be fixed there in one click.")
+        }
+    }
+
+    private fun fixSwappedPositions(): Job = viewModelScope.launch {
+        val fixes = _state.value.positionIssues.filterIsInstance<PositionIssue.Swapped>().associateBy { it.id }
+        if (fixes.isEmpty()) return@launch
+        withContext(io) {
+            repository.getAll().forEach { asset ->
+                val fix = fixes[asset.id] ?: return@forEach
+                // Only if the tower still has the position the check saw (it may have been edited meanwhile).
+                if (asset.latitude == fix.current.lat && asset.longitude == fix.current.lon) {
+                    repository.save(asset.copy(latitude = fix.corrected.lat, longitude = fix.corrected.lon))
+                }
+            }
+        }
+        val records = loadRecords()
+        val count = fixes.size
+        _state.update { it.copy(records = records, notice = "Swapped latitude and longitude back for $count tower${if (count == 1) "" else "s"}.") }
     }
 
     /** Imports the towers of a GeoPackage exported by this app; towers already in the project (same id) are left alone. */

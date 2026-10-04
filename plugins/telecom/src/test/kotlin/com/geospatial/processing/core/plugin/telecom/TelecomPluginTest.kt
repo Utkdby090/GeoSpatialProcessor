@@ -58,6 +58,24 @@ class TelecomPluginTest {
         assertEquals(1.0f, progress.last())
     }
 
+    @Test
+    fun `csv coordinates may be degrees-minutes-seconds and letter-marked columns are put the right way round`() {
+        val csv = File(dir, "dms.csv").apply {
+            writeText(
+                "Tower No.,Line Name,Lat.,Long.\n" +
+                    "76_0,Line A,\"27°30'00\"\"N\",\"73°54'00\"\"E\"\n" +
+                    "76_1,Line A,73 54 E,27 30 N\n"
+            )
+        }
+
+        val drafts = plugin.getCsvImportStrategy().parse(csv) {}
+
+        drafts.forEach {
+            assertEquals(27.5, it.latitude, 1e-9)
+            assertEquals(73.9, it.longitude, 1e-9)
+        }
+    }
+
     // --- Presentation / titles ------------------------------------------------------------------
 
     @Test
