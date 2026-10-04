@@ -2,6 +2,10 @@ package com.geospatial.processing.ui.map
 
 import com.geospatial.processing.domain.map.TileKey
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -22,15 +26,32 @@ class TileLoader(
         if (file.isFile && file.length() > 0) return runCatching { file.readBytes() }.getOrNull()
 
         val bytes = runCatching { fetch(key) }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
-        runCatching {
-            file.parentFile.mkdirs()
-            // Write to a temp name first so a crash never leaves a half-written tile that would be served as valid.
-            // A unique temp name per call, because the map loads tiles on several threads at once.
-            val tmp = File.createTempFile(file.name, ".tmp", file.parentFile)
-            tmp.writeBytes(bytes)
-            if (!tmp.renameTo(file)) { file.writeBytes(bytes); tmp.delete() }
-        }
+        store(file, bytes)
         return bytes
+    }
+
+    /**
+     * Writes to a temp name first and then moves it into place, so a crash or a full disk never leaves a half-written
+     * tile that would be served as valid. The temp name is unique per call because tiles load on several threads, and it
+     * is removed whatever happens. Failing to cache is not an error: the tile is downloaded again next time.
+     */
+    private fun store(file: File, bytes: ByteArray) {
+        var tmp: Path? = null
+        try {
+            val dir = file.parentFile.toPath()
+            Files.createDirectories(dir)
+            tmp = Files.createTempFile(dir, file.name, ".tmp")
+            Files.write(tmp, bytes)
+            try {
+                Files.move(tmp, file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(tmp, file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+        } catch (_: Exception) {
+            // Another thread stored the same tile, the disk is full, or the cache folder is read-only.
+        } finally {
+            tmp?.let { runCatching { Files.deleteIfExists(it) } }
+        }
     }
 }
 

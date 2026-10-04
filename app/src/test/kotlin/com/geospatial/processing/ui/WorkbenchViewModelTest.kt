@@ -410,4 +410,61 @@ class WorkbenchViewModelTest {
 
         assertEquals(listOf("VMT-2", "VMT-3", "VMT-4", "VMT-1"), vm.state.value.displayedRecords.map { it.property(K.TOWER_NUMBER) })
     }
+
+    private fun importPositions(vararg rows: Pair<String, Pair<Double, Double>>) = runBlocking {
+        val file = File(root, "positions.csv").apply {
+            writeText("Tower No.,Line Name,CKT,Lat.,Long.\n" + rows.joinToString("\n") { (t, p) -> "$t,Line A,1,${p.first},${p.second}" })
+        }
+        vm.importCsv(file).join()
+    }
+
+    private fun positions() = vm.state.value.records.associate { it.property(K.TOWER_NUMBER) to (it.latitude to it.longitude) }
+
+    @Test
+    fun `swap back fixes only the towers that look swapped`() = runBlocking {
+        importPositions("T1" to (12.50 to 77.50), "T2" to (12.51 to 77.51), "T3" to (77.52 to 12.52), "T4" to (12.53 to 77.53))
+        assertEquals(listOf("T3"), vm.state.value.positionIssues.map { issue -> vm.state.value.records.first { it.id == issue.id }.property(K.TOWER_NUMBER) })
+        assertTrue(vm.state.value.importWarning!!.contains("T3"))
+
+        vm.fixSwappedPositions().join()
+
+        assertEquals(12.52 to 77.52, positions()["T3"])
+        assertEquals(12.50 to 77.50, positions()["T1"])
+        assertTrue(vm.state.value.positionIssues.isEmpty())
+        assertTrue(vm.state.value.notice!!.contains("1 tower"))
+    }
+
+    @Test
+    fun `swap all exchanges every position, skips towers without one, and a second swap undoes it`() = runBlocking {
+        importPositions("T1" to (77.50 to 12.50), "T2" to (77.51 to 12.51), "T3" to (0.0 to 0.0))
+        assertTrue(vm.state.value.allPositionsLookSwapped)
+
+        vm.swapAllPositions().join()
+        assertEquals(mapOf("T1" to (12.50 to 77.50), "T2" to (12.51 to 77.51), "T3" to (0.0 to 0.0)), positions())
+        assertFalse(vm.state.value.allPositionsLookSwapped)
+        assertTrue(vm.state.value.notice!!.contains("2 towers"))
+
+        vm.swapAllPositions().join()
+        assertEquals(77.50 to 12.50, positions()["T1"])
+    }
+
+    @Test
+    fun `a double click on swap all swaps once, not twice`() = runBlocking {
+        importPositions("T1" to (77.50 to 12.50), "T2" to (77.51 to 12.51))
+        val first = vm.swapAllPositions()
+        val second = vm.swapAllPositions()
+        first.join(); second.join()
+        assertEquals(12.50 to 77.50, positions()["T1"])
+    }
+
+    @Test
+    fun `a failing swap is reported instead of crashing`() = runBlocking {
+        importPositions("T1" to (77.50 to 12.50), "T2" to (77.51 to 12.51))
+        session.close()
+
+        vm.swapAllPositions().join()
+
+        assertTrue(vm.state.value.notice!!.startsWith("Could not swap"), vm.state.value.notice)
+        session = ProjectSession.open(projectDir)
+    }
 }
