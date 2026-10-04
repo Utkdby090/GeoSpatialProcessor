@@ -1,6 +1,7 @@
 package com.geospatial.processing.data.images
 
 import com.geospatial.processing.domain.model.ImageFiles
+import com.geospatial.processing.utils.SafeFiles
 import java.io.File
 
 /**
@@ -16,12 +17,8 @@ class ImageStore(private val projectDir: File) {
     fun write(assetId: String, slot: String, bytes: ByteArray): String {
         require(SAFE_NAME.matches(assetId) && SAFE_NAME.matches(slot)) { "Unsafe image name: $assetId/$slot" }
         val relativePath = "$IMAGES_DIR/$assetId/$slot.${extensionOf(bytes)}"
-        val target = File(projectDir, relativePath)
-        target.parentFile.mkdirs()
-        val tmp = File(target.parentFile, target.name + ".tmp")
-        tmp.writeBytes(bytes)
-        if (target.exists()) target.delete()
-        check(tmp.renameTo(target)) { "Could not write image $target" }
+        // Atomic: a crash or a full disk leaves the old image or the new one, never neither.
+        SafeFiles.writeBytes(File(projectDir, relativePath), bytes)
         return relativePath
     }
 
@@ -32,12 +29,11 @@ class ImageStore(private val projectDir: File) {
      */
     fun writeOriginal(assetId: String, slot: String, bytes: ByteArray) {
         require(SAFE_NAME.matches(assetId) && SAFE_NAME.matches(slot)) { "Unsafe image name: $assetId/$slot" }
-        deleteOriginal(assetId, slot)
         val target = File(imagesDir, "$assetId/$slot$ORIGINAL_MARKER${extensionOf(bytes)}")
-        target.parentFile.mkdirs()
-        val tmp = File(target.parentFile, target.name + ".tmp")
-        tmp.writeBytes(bytes)
-        check(tmp.renameTo(target)) { "Could not write image $target" }
+        SafeFiles.writeBytes(target, bytes)
+        // Only now, with the new original in place, remove an earlier one of another file type (jpg -> png).
+        File(imagesDir, assetId).listFiles { f -> f.isFile && f.name.startsWith("$slot$ORIGINAL_MARKER") && !f.name.endsWith(".tmp") && f != target }
+            ?.forEach { it.delete() }
     }
 
     /** The original file kept for [assetId]/[slot], if any. */

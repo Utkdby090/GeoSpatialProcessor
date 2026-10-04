@@ -1,5 +1,6 @@
 package com.geospatial.processing.utils
 
+import org.slf4j.LoggerFactory
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -10,6 +11,8 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 object ProjectArchiver {
+
+    private val log = LoggerFactory.getLogger(ProjectArchiver::class.java)
 
     sealed class ImportResult {
         data class Success(val projectDir: File) : ImportResult()
@@ -29,25 +32,27 @@ object ProjectArchiver {
      * The project must be CLOSED (not the active database) when this runs.
      */
     fun exportProject(projectDir: File, destinationZip: File): Boolean {
-        val tmp = File(destinationZip.parentFile, destinationZip.name + ".partial")
+        // A ".tmp" name is never packed (see isExcluded), even when the destination lies inside the project folder.
+        val tmp = SafeFiles.temporaryNextTo(destinationZip)
+        val destination = destinationZip.absoluteFile.canonicalFile
         return try {
-            FileOutputStream(tmp).use { fos ->
-                ZipOutputStream(fos).use { zos ->
-                    projectDir.walkTopDown()
-                        .filter { it.isFile && !isExcluded(it) }
-                        .forEach { file ->
-                            val relative = file.relativeTo(projectDir).invariantSeparatorsPath
-                            zos.putNextEntry(ZipEntry("${projectDir.name}/$relative"))
-                            FileInputStream(file).use { it.copyTo(zos, COPY_BUFFER) }
-                            zos.closeEntry()
-                        }
-                }
+            destination.parentFile?.mkdirs()
+            ZipOutputStream(tmp.outputStream().buffered()).use { zos ->
+                projectDir.walkTopDown()
+                    .filter { it.isFile && !isExcluded(it) && it.canonicalFile != destination }
+                    .forEach { file ->
+                        val relative = file.relativeTo(projectDir).invariantSeparatorsPath
+                        zos.putNextEntry(ZipEntry("${projectDir.name}/$relative"))
+                        FileInputStream(file).use { it.copyTo(zos, COPY_BUFFER) }
+                        zos.closeEntry()
+                    }
             }
-            // Only replace the destination once the archive is complete.
-            if (destinationZip.exists()) destinationZip.delete()
-            tmp.renameTo(destinationZip)
+            // Replace the destination only now that the archive is complete, in one step: an earlier export is never
+            // deleted before the new one exists.
+            SafeFiles.moveReplacing(tmp, destination)
+            true
         } catch (e: Exception) {
-            e.printStackTrace()
+            log.error("Exporting {} to {} failed", projectDir, destinationZip, e)
             tmp.delete()
             false
         }
@@ -68,6 +73,7 @@ object ProjectArchiver {
         if (!geoxFile.isFile) return ImportResult.Failure("File not found: ${geoxFile.name}")
 
         val workspace = workspaceDir.canonicalFile
+        removeStaleStagingFolders(workspace)
         val staging = File(workspace, ".import-${UUID.randomUUID()}")
 
         return try {
@@ -138,7 +144,7 @@ object ProjectArchiver {
         } catch (e: java.util.zip.ZipException) {
             ImportResult.Failure("The file is not a valid .geox archive.")
         } catch (e: Exception) {
-            e.printStackTrace()
+            log.error("Importing {} failed", geoxFile, e)
             ImportResult.Failure("Import failed: ${e.message ?: e.javaClass.simpleName}")
         } finally {
             if (staging.exists()) staging.deleteRecursively()
@@ -146,6 +152,18 @@ object ProjectArchiver {
     }
 
     // --- helpers --------------------------------------------------------------------------------
+
+    private const val STALE_STAGING_MILLIS = 24L * 60 * 60 * 1000
+
+    /**
+     * An import that was interrupted (the app was closed or crashed) leaves its ".import-*" folder in the workspace,
+     * with a partly unpacked project taking up disk space. Anything older than a day cannot belong to a running import.
+     */
+    private fun removeStaleStagingFolders(workspace: File) {
+        val cutoff = System.currentTimeMillis() - STALE_STAGING_MILLIS
+        workspace.listFiles { f -> f.isDirectory && f.name.startsWith(".import-") && f.lastModified() < cutoff }
+            ?.forEach { runCatching { it.deleteRecursively() } }
+    }
 
     private fun isExcluded(file: File): Boolean {
         val name = file.name.lowercase()

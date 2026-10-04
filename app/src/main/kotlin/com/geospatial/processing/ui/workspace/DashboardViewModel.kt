@@ -65,7 +65,13 @@ object DesktopProjectTrash : ProjectTrash {
         if (moveToTrash && desktop?.isSupported(java.awt.Desktop.Action.MOVE_TO_TRASH) == true) {
             desktop.moveToTrash(projectDir)
         } else {
-            projectDir.renameTo(File(projectDir.parentFile, ".deleted_${projectDir.name}"))
+            // An earlier soft-deleted project of the same name may still be there (Windows cannot rename onto it).
+            var target = File(projectDir.parentFile, ".deleted_${projectDir.name}")
+            var n = 2
+            while (target.exists()) target = File(projectDir.parentFile, ".deleted_${projectDir.name}_${n++}")
+            if (!projectDir.renameTo(target)) {
+                throw java.io.IOException("${projectDir.name} could not be moved. Is it open in another program?")
+            }
         }
     }
 }
@@ -95,11 +101,18 @@ class DashboardViewModel(
         // Folders starting with a dot are hidden: ".metadata" and soft-deleted ".deleted_*" projects.
         val projects = workspaceDir.listFiles()
             ?.filter { it.isDirectory && !it.name.startsWith(".") }
-            ?.sortedByDescending { it.lastModified() }
-            ?.map { ProjectSummary(it, it.name, it.absolutePath, it.lastModified()) }
+            ?.map { dir -> ProjectSummary(dir, dir.name, dir.absolutePath, lastActivity(dir)) }
+            ?.sortedByDescending { it.lastModified }
             ?: emptyList()
         _state.update { it.copy(projects = projects) }
     }
+
+    /**
+     * When the project was last worked on. A folder's own time only changes when files are added or removed in it, so
+     * editing towers (which rewrites project.db) would never move a project up the "recent" list; the database's time does.
+     */
+    private fun lastActivity(projectDir: File): Long =
+        maxOf(projectDir.lastModified(), File(projectDir, "project.db").lastModified(), File(projectDir, "project.json").lastModified())
 
     fun openProject(projectDir: File) {
         navigator.openProject(projectDir)
@@ -107,7 +120,17 @@ class DashboardViewModel(
 
     /** Returns true if the project was created and opened (the wizard should close). */
     fun createProject(pluginId: String, projectName: String): Boolean {
-        val newProjectDir = ProjectManager.createNewProject(workspaceDir, projectName, pluginId)
+        if (projectName.isBlank()) {
+            showNotice("Project not created", "Give the project a name.")
+            return false
+        }
+        val newProjectDir = try {
+            ProjectManager.createNewProject(workspaceDir, projectName, pluginId)
+        } catch (e: Exception) {
+            log.error("Could not create project {}", projectName, e)
+            showNotice("Project not created", "The project could not be created in ${workspaceDir.absolutePath}: ${e.message}")
+            return false
+        }
         if (newProjectDir == null) {
             showNotice("Project not created", "A project folder for \"$projectName\" already exists in this workspace.")
             return false
@@ -139,10 +162,28 @@ class DashboardViewModel(
         )
     }
 
-    fun renameProject(projectDir: File, newName: String) {
-        val newDir = File(projectDir.parentFile, newName)
-        if (projectDir.name != newName && !newDir.exists()) projectDir.renameTo(newDir)
+    /** Renames the project folder; returns whether it was renamed. The reason it was not is shown as a notice. */
+    fun renameProject(projectDir: File, newName: String): Boolean {
+        val name = newName.trim()
+        val renamed = when {
+            name == projectDir.name -> false // nothing to do, nothing to report
+            // The name becomes a folder inside the workspace: no separators, "..", reserved or illegal characters.
+            !ProjectManager.isValidFolderName(name) -> {
+                showNotice("Project not renamed", "\"$newName\" cannot be used as a project name. Avoid \\ / : * ? \" < > | and names starting with a dot.")
+                false
+            }
+            File(projectDir.parentFile, name).exists() -> {
+                showNotice("Project not renamed", "A project called \"$name\" already exists in this workspace.")
+                false
+            }
+            !projectDir.renameTo(File(projectDir.parentFile, name)) -> {
+                showNotice("Project not renamed", "\"${projectDir.name}\" could not be renamed. Is it open in another program?")
+                false
+            }
+            else -> true
+        }
         refresh()
+        return renamed
     }
 
     fun deleteProject(projectDir: File, moveToTrash: Boolean) {
@@ -150,6 +191,7 @@ class DashboardViewModel(
             trash.remove(projectDir, moveToTrash)
         } catch (e: Exception) {
             log.error("Could not remove project {}", projectDir, e)
+            showNotice("Project not removed", "\"${projectDir.name}\" could not be removed: ${e.message ?: "unknown error"}")
         }
         refresh()
     }
