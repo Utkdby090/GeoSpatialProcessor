@@ -241,8 +241,10 @@ fun FrameWindowScope.MainScreen(
                     tileLoader = tileLoader,
                     isDarkTheme = state.isDarkTheme,
                     positionIssues = state.positionIssues,
+                    allLookSwapped = state.allPositionsLookSwapped,
                     onSelect = { onAction(WorkbenchAction.Select(it)) },
                     onFixSwapped = { onAction(WorkbenchAction.FixSwappedPositions) },
+                    onSwapAll = { onAction(WorkbenchAction.SwapAllPositions) },
                     onDismiss = { showMap = false },
                 )
             }

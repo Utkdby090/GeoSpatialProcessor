@@ -32,6 +32,7 @@ import com.geospatial.processing.ui.theme.GeospatialEnterpriseTheme
 import kotlinx.coroutines.launch
 import kotlinx.io.Buffer
 import ovh.plrapps.mapcompose.api.BoundingBox
+import ovh.plrapps.mapcompose.api.addClusterer
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.addMarker
 import ovh.plrapps.mapcompose.api.centerOnMarker
@@ -47,7 +48,12 @@ import ovh.plrapps.mapcompose.api.updateMarkerZ
 import ovh.plrapps.mapcompose.core.TileStreamProvider
 import ovh.plrapps.mapcompose.ui.MapUI
 import ovh.plrapps.mapcompose.ui.state.MapState
+import ovh.plrapps.mapcompose.ui.state.markers.model.RenderingStrategy
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.roundToLong
+import kotlin.math.sin
 
 private const val LEVEL_COUNT = WebMercator.MAX_ZOOM + 1
 private const val FULL_SIZE = WebMercator.TILE_SIZE shl WebMercator.MAX_ZOOM
@@ -56,6 +62,24 @@ private const val TILE_WORKERS = 8
 /** Fitting never zooms closer than this share of the world (about 800 m), so a lone tower still shows its surroundings. */
 private const val MIN_FIT_SPAN = 0.00002
 private val FIT_PADDING = Offset(0.2f, 0.2f)
+
+private const val CLUSTERER = "towers"
+/** How far pins that share one position are spread apart, so every one of them can be seen and clicked. */
+private val FAN_OUT_RADIUS = 14.dp
+
+/**
+ * Screen offsets for assets that share a position (same coordinates to about a metre): spread on a small circle around
+ * it. Assets with a position of their own get no entry.
+ */
+private fun fanOutOffsets(assets: List<Asset>): Map<String, DpOffset> =
+    assets.groupBy { (it.latitude * 1e5).roundToLong() to (it.longitude * 1e5).roundToLong() }.values
+        .filter { it.size > 1 }
+        .flatMap { group ->
+            group.mapIndexed { i, asset ->
+                val angle = 2 * PI * i / group.size - PI / 2
+                asset.id to DpOffset(FAN_OUT_RADIUS * cos(angle).toFloat(), FAN_OUT_RADIUS * sin(angle).toFloat())
+            }
+        }.toMap()
 
 /** Assets still at 0,0 have no position yet (the CSV left it blank and no image GPS filled it in). */
 private fun Asset.hasPosition() = !(latitude == 0.0 && longitude == 0.0)
@@ -87,8 +111,10 @@ fun MapView(
     plugin: DomainPlugin,
     tileLoader: TileLoader,
     positionIssues: List<PositionIssue>,
+    allLookSwapped: Boolean,
     onSelect: (Asset) -> Unit,
     onFixSwapped: () -> Unit,
+    onSwapAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val positioned = remember(assets) { assets.filter { it.hasPosition() } }
@@ -104,6 +130,8 @@ fun MapView(
         }.apply {
             // MapCompose owns (and closes) the returned source.
             addLayer(TileStreamProvider { row, col, zoom -> tileLoader.load(TileKey(zoom, col, row))?.let { Buffer().apply { write(it) } } })
+            // Pins closer than this on screen merge into one bubble with a count; clicking it zooms in to separate them.
+            addClusterer(CLUSTERER, clusteringThreshold = 28.dp) { ids -> { ClusterBubble(ids.size) } }
         }
     }
     DisposableEffect(state) { onDispose { state.shutdown() } }
@@ -119,11 +147,14 @@ fun MapView(
     val flaggedState = rememberUpdatedState(flagged)
     LaunchedEffect(state, positioned) {
         state.removeAllMarkers()
+        val fanOut = fanOutOffsets(positioned)
         positioned.forEach { asset ->
             state.addMarker(
                 asset.id, asset.mapX(), asset.mapY(),
                 relativeOffset = Offset(-0.5f, -0.5f),
+                absoluteOffset = fanOut[asset.id] ?: DpOffset.Zero,
                 zIndex = if (asset.id == selectedState.value) 1f else 0f,
+                renderingStrategy = RenderingStrategy.Clustering(CLUSTERER),
             ) {
                 TooltipArea(
                     tooltip = { PinTooltip(plugin.present(asset).listTitle, flaggedState.value[asset.id]) },
@@ -147,12 +178,13 @@ fun MapView(
         previousSelected = selectedId
     }
 
-    // Fit once there is something to show; after that the user is in charge.
-    var fitted by remember { mutableStateOf(false) }
-    LaunchedEffect(state, trusted) {
-        if (fitted) return@LaunchedEffect
-        boundsOf(trusted)?.let { state.snapScrollTo(it, FIT_PADDING); fitted = true }
+    // Frame the towers when the map opens and whenever positions change (an import, a swap); selecting doesn't refit.
+    val trustedPositions = remember(trusted) { trusted.map { it.latitude to it.longitude } }
+    LaunchedEffect(state, trustedPositions) {
+        boundsOf(trusted)?.let { state.snapScrollTo(it, FIT_PADDING) }
     }
+
+    var confirmSwapAll by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     fun zoomBy(factor: Double) = scope.launch { state.scrollTo(state.centroidX, state.centroidY, state.scale * factor) }
@@ -162,7 +194,8 @@ fun MapView(
 
         Column(Modifier.align(Alignment.TopStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             positioned.firstOrNull { it.id == selectedId }?.let { SelectedCard(plugin.present(it).sequenceLabel, it) }
-            if (positionIssues.isNotEmpty()) IssueBanner(positionIssues, assets, plugin, onFixSwapped)
+            if (allLookSwapped) SwapAllBanner(positioned.size) { confirmSwapAll = true }
+            else if (positionIssues.isNotEmpty()) IssueBanner(positionIssues, assets, plugin, onFixSwapped)
         }
 
         Column(Modifier.align(Alignment.TopEnd).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -172,6 +205,19 @@ fun MapView(
                 enabled = trusted.isNotEmpty(),
                 onClick = { boundsOf(trusted)?.let { scope.launch { state.scrollTo(it, FIT_PADDING) } } },
             ) { Text("⌖") }
+            TooltipArea(tooltip = { PinTooltip("Swap latitude and longitude for all towers", null) }, delayMillis = 300) {
+                FilledTonalIconButton(enabled = positioned.isNotEmpty(), onClick = { confirmSwapAll = true }) { Text("⇄") }
+            }
+        }
+
+        if (confirmSwapAll) {
+            AlertDialog(
+                onDismissRequest = { confirmSwapAll = false },
+                title = { Text("Swap latitude and longitude?") },
+                text = { Text("This exchanges latitude and longitude for all ${positioned.size} towers with a position. Doing it again undoes it.") },
+                confirmButton = { Button(onClick = { confirmSwapAll = false; onSwapAll() }) { Text("Swap for all") } },
+                dismissButton = { TextButton(onClick = { confirmSwapAll = false }) { Text("Cancel") } },
+            )
         }
 
         val skipped = assets.size - positioned.size
@@ -205,6 +251,36 @@ private fun Pin(color: Color, selected: Boolean, flagged: Boolean) {
             .background(color, CircleShape)
             .then(if (selected) Modifier.border(1.5.dp, Color.Black, CircleShape) else Modifier),
     )
+}
+
+@Composable
+private fun ClusterBubble(count: Int) {
+    Box(
+        Modifier.size(30.dp).background(Color.White, CircleShape).padding(2.dp).background(Color(0xFF2563EB), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(count.toString(), color = Color.White, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun SwapAllBanner(count: Int, onSwap: () -> Unit) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.errorContainer,
+        shadowElevation = 2.dp,
+        modifier = Modifier.widthIn(max = 380.dp),
+    ) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                "The towers sit in the polar regions, so latitude and longitude are probably swapped for all of them.",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Button(onClick = onSwap, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                Text("Swap for all $count towers", fontSize = 12.sp)
+            }
+        }
+    }
 }
 
 @Composable
@@ -280,8 +356,10 @@ fun MapWindow(
     tileLoader: TileLoader,
     isDarkTheme: Boolean,
     positionIssues: List<PositionIssue>,
+    allLookSwapped: Boolean,
     onSelect: (Asset) -> Unit,
     onFixSwapped: () -> Unit,
+    onSwapAll: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val windowState = rememberWindowState(width = 1100.dp, height = 750.dp, position = WindowPosition(Alignment.Center))
@@ -295,7 +373,10 @@ fun MapWindow(
         GeospatialEnterpriseTheme(darkTheme = isDarkTheme) {
             Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                 CustomTitleBar(windowState = windowState, onCloseApp = onDismiss, appName = "Tower Map")
-                MapView(assets, selectedId, plugin, tileLoader, positionIssues, onSelect, onFixSwapped, Modifier.fillMaxSize().weight(1f))
+                MapView(
+                    assets, selectedId, plugin, tileLoader, positionIssues, allLookSwapped,
+                    onSelect, onFixSwapped, onSwapAll, Modifier.fillMaxSize().weight(1f),
+                )
             }
         }
     }
