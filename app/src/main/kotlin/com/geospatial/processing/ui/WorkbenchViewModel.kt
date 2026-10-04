@@ -23,6 +23,7 @@ import com.geospatial.processing.domain.report.ReportBranding
 import com.geospatial.processing.domain.report.ReportOptions
 import com.geospatial.processing.domain.report.ReportTemplate
 import com.geospatial.processing.utils.ProjectManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import java.io.File
@@ -234,32 +236,58 @@ class WorkbenchViewModel(
         }
     }
 
-    private fun swapAllPositions(): Job = viewModelScope.launch {
-        val count = withContext(io) {
-            repository.getAll()
-                .filter { !(it.latitude == 0.0 && it.longitude == 0.0) && GeoPoint(it.longitude, it.latitude).isValid }
-                .onEach { repository.save(it.copy(latitude = it.longitude, longitude = it.latitude)) }
-                .size
+    /** Serializes the position fixes: a double click on "Swap for all" must not run two swaps over each other (net: none). */
+    private val positionEdits = Mutex()
+
+    internal fun swapAllPositions(): Job = viewModelScope.launch {
+        if (!positionEdits.tryLock()) return@launch
+        try {
+            val count = withContext(io) {
+                val swapped = repository.getAll()
+                    .filter { !(it.latitude == 0.0 && it.longitude == 0.0) && GeoPoint(it.longitude, it.latitude).isValid }
+                    .map { it.copy(latitude = it.longitude, longitude = it.latitude) }
+                // One transaction: all towers are swapped or, on failure, none, so a retry never un-swaps half of them.
+                repository.insertAll(swapped)
+                swapped.size
+            }
+            val records = loadRecords()
+            _state.update { it.copy(records = records, notice = "Swapped latitude and longitude for $count tower${if (count == 1) "" else "s"}.") }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.error("Swapping all positions failed", e)
+            _state.update { it.copy(notice = "Could not swap the positions: ${e.message}") }
+        } finally {
+            positionEdits.unlock()
         }
-        val records = loadRecords()
-        _state.update { it.copy(records = records, notice = "Swapped latitude and longitude for $count tower${if (count == 1) "" else "s"}.") }
     }
 
-    private fun fixSwappedPositions(): Job = viewModelScope.launch {
-        val fixes = _state.value.positionIssues.filterIsInstance<PositionIssue.Swapped>().associateBy { it.id }
-        if (fixes.isEmpty()) return@launch
-        withContext(io) {
-            repository.getAll().forEach { asset ->
-                val fix = fixes[asset.id] ?: return@forEach
-                // Only if the tower still has the position the check saw (it may have been edited meanwhile).
-                if (asset.latitude == fix.current.lat && asset.longitude == fix.current.lon) {
-                    repository.save(asset.copy(latitude = fix.corrected.lat, longitude = fix.corrected.lon))
+    internal fun fixSwappedPositions(): Job = viewModelScope.launch {
+        if (!positionEdits.tryLock()) return@launch
+        try {
+            val fixes = _state.value.positionIssues.filterIsInstance<PositionIssue.Swapped>().associateBy { it.id }
+            if (fixes.isEmpty()) return@launch
+            val count = withContext(io) {
+                val fixed = repository.getAll().mapNotNull { asset ->
+                    val fix = fixes[asset.id] ?: return@mapNotNull null
+                    // Only if the tower still has the position the check saw (it may have been edited meanwhile).
+                    if (asset.latitude == fix.current.lat && asset.longitude == fix.current.lon) {
+                        asset.copy(latitude = fix.corrected.lat, longitude = fix.corrected.lon)
+                    } else null
                 }
+                repository.insertAll(fixed)
+                fixed.size
             }
+            val records = loadRecords()
+            _state.update { it.copy(records = records, notice = "Swapped latitude and longitude back for $count tower${if (count == 1) "" else "s"}.") }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.error("Fixing swapped positions failed", e)
+            _state.update { it.copy(notice = "Could not swap the positions back: ${e.message}") }
+        } finally {
+            positionEdits.unlock()
         }
-        val records = loadRecords()
-        val count = fixes.size
-        _state.update { it.copy(records = records, notice = "Swapped latitude and longitude back for $count tower${if (count == 1) "" else "s"}.") }
     }
 
     /** Imports the towers of a GeoPackage exported by this app; towers already in the project (same id) are left alone. */

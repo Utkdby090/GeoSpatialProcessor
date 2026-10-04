@@ -236,6 +236,7 @@ fun FrameWindowScope.MainScreen(
             if (showMap) {
                 MapWindow(
                     assets = state.displayedRecords,
+                    allAssets = state.records,
                     selectedId = state.selectedRecordId,
                     plugin = plugin,
                     tileLoader = tileLoader,

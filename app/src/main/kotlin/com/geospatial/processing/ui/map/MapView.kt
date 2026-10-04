@@ -22,6 +22,8 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
 import com.geospatial.processing.core.plugin.DomainPlugin
+import com.geospatial.processing.domain.map.GeoPoint
+import com.geospatial.processing.domain.map.MapLayout
 import com.geospatial.processing.domain.map.PositionIssue
 import com.geospatial.processing.domain.map.TileKey
 import com.geospatial.processing.domain.map.WebMercator
@@ -51,53 +53,41 @@ import ovh.plrapps.mapcompose.core.TileStreamProvider
 import ovh.plrapps.mapcompose.ui.MapUI
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.ui.state.markers.model.RenderingStrategy
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.max
-import kotlin.math.roundToLong
-import kotlin.math.sin
+import org.slf4j.LoggerFactory
+import java.util.Locale
+
+private val log = LoggerFactory.getLogger("MapView")
 
 private const val LEVEL_COUNT = WebMercator.MAX_ZOOM + 1
 private const val FULL_SIZE = WebMercator.TILE_SIZE shl WebMercator.MAX_ZOOM
 /** Disk-cache reads and decoding run in parallel; network downloads are limited separately ([OsmTileFetcher]). */
 private const val TILE_WORKERS = 8
-/** Fitting never zooms closer than this share of the world (about 800 m), so a lone tower still shows its surroundings. */
-private const val MIN_FIT_SPAN = 0.00002
+/** Room left around the towers when the map frames them, as a share of the view. */
 private val FIT_PADDING = Offset(0.2f, 0.2f)
 
 private const val CLUSTERER = "towers"
 /** How far pins that share one position are spread apart, so every one of them can be seen and clicked. */
 private val FAN_OUT_RADIUS = 14.dp
 
-/**
- * Screen offsets for assets that share a position (same coordinates to about a metre): spread on a small circle around
- * it. Assets with a position of their own get no entry.
- */
+/** Screen offsets for assets that share a position, so every pin can be seen and clicked; others get no entry. */
 private fun fanOutOffsets(assets: List<Asset>): Map<String, DpOffset> =
-    assets.groupBy { (it.latitude * 1e5).roundToLong() to (it.longitude * 1e5).roundToLong() }.values
-        .filter { it.size > 1 }
-        .flatMap { group ->
-            group.mapIndexed { i, asset ->
-                val angle = 2 * PI * i / group.size - PI / 2
-                asset.id to DpOffset(FAN_OUT_RADIUS * cos(angle).toFloat(), FAN_OUT_RADIUS * sin(angle).toFloat())
-            }
-        }.toMap()
+    MapLayout.fanOut(assets.associate { it.id to it.geoPoint() })
+        .mapValues { (_, d) -> DpOffset(FAN_OUT_RADIUS * d.first.toFloat(), FAN_OUT_RADIUS * d.second.toFloat()) }
 
-/** Assets still at 0,0 have no position yet (the CSV left it blank and no image GPS filled it in). */
-private fun Asset.hasPosition() = !(latitude == 0.0 && longitude == 0.0)
+private fun Asset.geoPoint() = GeoPoint(latitude, longitude)
+
+/** Real coordinates only: 0,0 means "no position yet", and NaN or out-of-range values would break the map layout. */
+private fun Asset.isPlottable() = MapLayout.plottable(geoPoint())
 
 private fun Asset.mapX() = WebMercator.normalizedX(longitude)
 private fun Asset.mapY() = WebMercator.normalizedY(latitude)
 
-/** The smallest map area holding [assets], grown to at least [MIN_FIT_SPAN] each way; null for none. */
-private fun boundsOf(assets: List<Asset>): BoundingBox? {
-    if (assets.isEmpty()) return null
-    val cx = (assets.minOf { it.mapX() } + assets.maxOf { it.mapX() }) / 2
-    val cy = (assets.minOf { it.mapY() } + assets.maxOf { it.mapY() }) / 2
-    val halfW = max(MIN_FIT_SPAN, assets.maxOf { it.mapX() } - assets.minOf { it.mapX() }) / 2
-    val halfH = max(MIN_FIT_SPAN, assets.maxOf { it.mapY() } - assets.minOf { it.mapY() }) / 2
-    return BoundingBox(cx - halfW, cy - halfH, cx + halfW, cy + halfH)
-}
+/** The map area that frames [assets]; null for none. */
+private fun boundsOf(assets: List<Asset>): BoundingBox? =
+    MapLayout.bounds(assets.map { it.geoPoint() })?.let { BoundingBox(it.left, it.top, it.right, it.bottom) }
+
+/** Coordinates with a dot as decimal separator whatever the system language, as surveys and GPS units write them. */
+internal fun formatPosition(asset: Asset) = String.format(Locale.ROOT, "%.6f, %.6f", asset.latitude, asset.longitude)
 
 /**
  * OpenStreetMap view of the project (MapCompose): one pin per positioned asset, coloured by severity.
@@ -105,11 +95,15 @@ private fun boundsOf(assets: List<Asset>): BoundingBox? {
  * [TowerCard] (photos and details); [images] resolves a tower's photos.
  * Pins whose position looks wrong ([positionIssues]) get a warning ring, and a banner offers to swap back
  * latitude/longitude pairs that were exchanged.
+ *
+ * [assets] are the towers shown as pins (the list's current filter); [allAssets] is the whole project, which the
+ * position checks and the swap actions cover, so banners name and count from it.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MapView(
     assets: List<Asset>,
+    allAssets: List<Asset>,
     selectedId: String?,
     plugin: DomainPlugin,
     tileLoader: TileLoader,
@@ -121,7 +115,7 @@ fun MapView(
     onSwapAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val positioned = remember(assets) { assets.filter { it.hasPosition() } }
+    val positioned = remember(assets) { assets.filter { it.isPlottable() } }
     val flagged = remember(positionIssues) { positionIssues.associateBy { it.id } }
     // Frame the towers that look right, so one misplaced pin doesn't zoom the map out to the whole world.
     val trusted = remember(positioned, flagged) { positioned.filter { it.id !in flagged }.ifEmpty { positioned } }
@@ -132,8 +126,15 @@ fun MapView(
         MapState(LEVEL_COUNT, FULL_SIZE, FULL_SIZE, workerCount = TILE_WORKERS) {
             magnifyingFactor(magnify)
         }.apply {
-            // MapCompose owns (and closes) the returned source.
-            addLayer(TileStreamProvider { row, col, zoom -> tileLoader.load(TileKey(zoom, col, row))?.let { Buffer().apply { write(it) } } })
+            // MapCompose owns (and closes) the returned source. It does not catch exceptions from here, and one would stop
+            // a tile worker for good, so a failure becomes "no tile" (the area stays grey and is asked for again later).
+            addLayer(
+                TileStreamProvider { row, col, zoom ->
+                    runCatching { tileLoader.load(TileKey(zoom, col, row))?.let { Buffer().apply { write(it) } } }
+                        .onFailure { log.warn("Tile {}/{}/{} failed", zoom, col, row, it) }
+                        .getOrNull()
+                }
+            )
             // Pins closer than this on screen merge into one bubble with a count; clicking it zooms in to separate them.
             addClusterer(CLUSTERER, clusteringThreshold = 28.dp) { ids -> { ClusterBubble(ids.size) } }
         }
@@ -155,7 +156,7 @@ fun MapView(
     // Pins read these states, so selection and warnings update without re-adding every marker.
     val selectedState = rememberUpdatedState(selectedId)
     val flaggedState = rememberUpdatedState(flagged)
-    LaunchedEffect(state, positioned) {
+    LaunchedEffect(state, positioned, plugin) {
         state.removeAllMarkers()
         val fanOut = fanOutOffsets(positioned)
         positioned.forEach { asset ->
@@ -177,15 +178,16 @@ fun MapView(
         }
     }
 
-    // Selected pin on top, and brought into view when it is chosen in the list.
+    // Selected pin on top, and brought into view when the selection changes. Not keyed on the data: a save or a refresh
+    // must not pull the map back to the selected tower after the user panned away (re-added pins get their z above).
     var previousSelected by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(state, selectedId, positioned) {
+    LaunchedEffect(state, selectedId) {
         previousSelected?.let { state.updateMarkerZ(it, 0f) }
+        previousSelected = selectedId
         if (selectedId != null && state.hasMarker(selectedId)) {
             state.updateMarkerZ(selectedId, 1f)
             state.centerOnMarker(selectedId)
         }
-        previousSelected = selectedId
     }
 
     // Frame the towers when the map opens and whenever positions change (an import, a swap); selecting doesn't refit.
@@ -195,16 +197,20 @@ fun MapView(
     }
 
     var confirmSwapAll by remember { mutableStateOf(false) }
+    // What "swap all" changes: every tower in the project whose swapped position is real (see WorkbenchViewModel).
+    val swappableCount = remember(allAssets) { allAssets.count { MapLayout.plottable(it.geoPoint().swapped()) } }
 
     val scope = rememberCoroutineScope()
     fun zoomBy(factor: Double) = scope.launch { state.scrollTo(state.centroidX, state.centroidY, state.scale * factor) }
 
-    BoxWithConstraints(modifier.clipToBounds().background(Color(0xFFE5E7EB))) {
+    Box(modifier.clipToBounds().background(Color(0xFFE5E7EB))) {
         MapUI(Modifier.fillMaxSize(), state = state)
 
-        Column(Modifier.align(Alignment.TopStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (allLookSwapped) SwapAllBanner(positioned.size) { confirmSwapAll = true }
-            else if (positionIssues.isNotEmpty()) IssueBanner(positionIssues, assets, plugin, onFixSwapped)
+        // Full height so the card can take whatever the banners leave (weight below) and scroll inside it. The column
+        // itself has no pointer handling, so drags and clicks beside the card still reach the map.
+        Column(Modifier.align(Alignment.TopStart).fillMaxHeight().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (allLookSwapped) SwapAllBanner(swappableCount) { confirmSwapAll = true }
+            else if (positionIssues.isNotEmpty()) IssueBanner(positionIssues, allAssets, plugin, onFixSwapped)
 
             val cardAsset = positioned.firstOrNull { it.id == cardId }
             if (cardAsset != null) {
@@ -213,9 +219,8 @@ fun MapView(
                     plugin = plugin,
                     images = images,
                     issue = flagged[cardAsset.id],
-                    // Room left under the banners; the card scrolls inside it.
-                    maxHeight = maxHeight - if (allLookSwapped || positionIssues.isNotEmpty()) 140.dp else 24.dp,
                     onClose = { cardId = null },
+                    modifier = Modifier.weight(1f, fill = false),
                 )
             } else {
                 positioned.firstOrNull { it.id == selectedId }?.let { SelectedCard(plugin.present(it).sequenceLabel, it) }
@@ -230,7 +235,7 @@ fun MapView(
                 onClick = { boundsOf(trusted)?.let { scope.launch { state.scrollTo(it, FIT_PADDING) } } },
             ) { Text("⌖") }
             TooltipArea(tooltip = { PinTooltip("Swap latitude and longitude for all towers", null) }, delayMillis = 300) {
-                FilledTonalIconButton(enabled = positioned.isNotEmpty(), onClick = { confirmSwapAll = true }) { Text("⇄") }
+                FilledTonalIconButton(enabled = swappableCount > 0, onClick = { confirmSwapAll = true }) { Text("⇄") }
             }
         }
 
@@ -238,7 +243,7 @@ fun MapView(
             AlertDialog(
                 onDismissRequest = { confirmSwapAll = false },
                 title = { Text("Swap latitude and longitude?") },
-                text = { Text("This exchanges latitude and longitude for all ${positioned.size} towers with a position. Doing it again undoes it.") },
+                text = { Text("This exchanges latitude and longitude for all $swappableCount towers with a position in this project. Doing it again undoes it.") },
                 confirmButton = { Button(onClick = { confirmSwapAll = false; onSwapAll() }) { Text("Swap for all") } },
                 dismissButton = { TextButton(onClick = { confirmSwapAll = false }) { Text("Cancel") } },
             )
@@ -247,7 +252,7 @@ fun MapView(
         val skipped = assets.size - positioned.size
         Text(
             buildString {
-                if (skipped > 0) append("$skipped without position · ")
+                if (skipped > 0) append("$skipped without a usable position · ")
                 append("© OpenStreetMap contributors")
             },
             modifier = Modifier.align(Alignment.BottomEnd).background(Color.White.copy(alpha = 0.75f)).padding(horizontal = 6.dp, vertical = 2.dp),
@@ -256,7 +261,7 @@ fun MapView(
         )
 
         if (positioned.isEmpty()) {
-            Text("No tower has a position yet.", Modifier.align(Alignment.Center), color = Color.DarkGray)
+            Text(if (assets.isEmpty()) "No towers to show." else "None of these towers has a usable position yet.", Modifier.align(Alignment.Center), color = Color.DarkGray)
         }
     }
 }
@@ -329,7 +334,7 @@ private fun SelectedCard(label: String, asset: Asset) {
     Surface(shape = MaterialTheme.shapes.small, tonalElevation = 2.dp, shadowElevation = 2.dp) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
             Text(label, fontSize = 13.sp)
-            Text("%.6f, %.6f".format(asset.latitude, asset.longitude), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(formatPosition(asset), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -375,6 +380,7 @@ private fun IssueBanner(issues: List<PositionIssue>, assets: List<Asset>, plugin
 @Composable
 fun MapWindow(
     assets: List<Asset>,
+    allAssets: List<Asset>,
     selectedId: String?,
     plugin: DomainPlugin,
     tileLoader: TileLoader,
@@ -399,7 +405,7 @@ fun MapWindow(
             Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                 CustomTitleBar(windowState = windowState, onCloseApp = onDismiss, appName = "Tower Map")
                 MapView(
-                    assets, selectedId, plugin, tileLoader, positionIssues, allLookSwapped, images,
+                    assets, allAssets, selectedId, plugin, tileLoader, positionIssues, allLookSwapped, images,
                     onSelect, onFixSwapped, onSwapAll, Modifier.fillMaxSize().weight(1f),
                 )
             }

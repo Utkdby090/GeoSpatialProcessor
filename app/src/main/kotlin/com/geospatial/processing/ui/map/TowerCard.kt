@@ -25,7 +25,6 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.geospatial.processing.core.plugin.CoreFields
@@ -42,6 +41,7 @@ import org.jetbrains.skia.Surface
 import org.slf4j.LoggerFactory
 import java.awt.Desktop
 import java.net.URI
+import kotlin.math.max
 import kotlin.math.min
 import org.jetbrains.skia.Image as SkiaImage
 
@@ -50,8 +50,11 @@ private val log = LoggerFactory.getLogger("TowerCard")
 private val CARD_WIDTH = 360.dp
 private val PHOTO_HEIGHT = 210.dp
 
-/** Photos are shown at most this many pixels wide, so a 20 MP drone shot doesn't sit in memory at full size. */
+/** Photos are kept at most this many pixels on their longer side, so a 20 MP drone shot doesn't sit in memory at full size. */
 private const val MAX_PHOTO_PX = 960
+
+/** Larger files are not photos this card can show; reading them would only risk running out of memory. */
+private const val MAX_PHOTO_BYTES = 200L * 1024 * 1024
 
 /** One available photo of the tower. */
 private data class TowerPhoto(val label: String, val isThermal: Boolean, val source: ImageSource)
@@ -60,6 +63,7 @@ private data class TowerPhoto(val label: String, val isThermal: Boolean, val sou
  * The card a tower pin opens on the map: its photos (structure first), name, severity and status,
  * every filled-in detail from the form grouped as on the form, and its exact position with a link to check it on Google Maps.
  * [images] resolves the tower's image slots; it touches the disk, so it runs off the UI thread.
+ * The card is as tall as its content up to the height [modifier] allows, and scrolls beyond that.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,29 +72,32 @@ fun TowerCard(
     plugin: DomainPlugin,
     images: (Asset) -> Map<String, ImageSource>,
     issue: PositionIssue?,
-    maxHeight: Dp,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val presentation = remember(asset) { plugin.present(asset) }
     var photos by remember(asset.id) { mutableStateOf<List<TowerPhoto>?>(null) }
     var shown by remember(asset.id) { mutableStateOf(0) }
+    // The caller passes a new lambda on every recomposition; read the latest one when loading.
+    val currentImages by rememberUpdatedState(images)
 
     LaunchedEffect(asset) {
-        photos = withContext(Dispatchers.IO) {
+        val loaded = withContext(Dispatchers.IO) {
             runCatching {
-                val sources = images(asset)
+                val sources = currentImages(asset)
                 plugin.imageSlots(asset)
                     .mapNotNull { slot -> sources[slot.id]?.takeIf { it !is ImageSource.Missing }?.let { TowerPhoto(slot.label, slot.isThermal, it) } }
                     // The structure photo is what "the tower" looks like; thermal and location shots come after.
                     .sortedBy { it.isThermal || it.label.contains("location", ignoreCase = true) }
             }.onFailure { log.warn("Could not list images for {}", asset.id, it) }.getOrDefault(emptyList())
         }
-        shown = 0
+        photos = loaded
+        // The same tower reloaded (a save, a refresh) keeps the photo the user picked, if it still exists.
+        shown = shown.coerceIn(0, (loaded.size - 1).coerceAtLeast(0))
     }
 
     Surface(
-        modifier = modifier.width(CARD_WIDTH).heightIn(max = maxHeight),
+        modifier = modifier.width(CARD_WIDTH),
         shape = RoundedCornerShape(16.dp),
         tonalElevation = 2.dp,
         shadowElevation = 10.dp,
@@ -210,7 +217,7 @@ private fun PositionRow(asset: Asset) {
         Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(6.dp))
         Text(
-            "%.6f, %.6f".format(asset.latitude, asset.longitude),
+            formatPosition(asset),
             fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f),
         )
         TextButton(onClick = { openInGoogleMaps(asset) }, contentPadding = PaddingValues(horizontal = 8.dp)) {
@@ -263,12 +270,16 @@ private fun DetailCell(label: String, value: String, modifier: Modifier) {
 /** Decodes [source] and shrinks it to at most [MAX_PHOTO_PX] wide; null when it can't be read. */
 private fun decodeScaled(source: ImageSource): ImageBitmap? = runCatching {
     val bytes = when (source) {
-        is ImageSource.FromFile -> source.file.readBytes()
+        is ImageSource.FromFile -> {
+            val size = source.file.length()
+            if (size > MAX_PHOTO_BYTES) { log.warn("Tower photo {} is too large to show ({} bytes)", source.file, size); return null }
+            source.file.readBytes()
+        }
         is ImageSource.FromBlob -> source.bytes
         ImageSource.Missing -> return null
     }
     SkiaImage.makeFromEncoded(bytes).use { full ->
-        val scale = min(1f, MAX_PHOTO_PX.toFloat() / full.width)
+        val scale = min(1f, MAX_PHOTO_PX.toFloat() / max(full.width, full.height))
         if (scale >= 1f) return@use full.toComposeImageBitmap()
         val w = (full.width * scale).toInt().coerceAtLeast(1)
         val h = (full.height * scale).toInt().coerceAtLeast(1)
@@ -282,6 +293,7 @@ private fun decodeScaled(source: ImageSource): ImageBitmap? = runCatching {
 private fun openInGoogleMaps(asset: Asset) {
     runCatching {
         if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+            // Double.toString always writes a dot, so the link works whatever the system language.
             Desktop.getDesktop().browse(URI("https://www.google.com/maps/search/?api=1&query=${asset.latitude},${asset.longitude}"))
         }
     }.onFailure { log.warn("Could not open the browser", it) }
