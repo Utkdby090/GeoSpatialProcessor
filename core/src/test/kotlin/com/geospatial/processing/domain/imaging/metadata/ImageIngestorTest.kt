@@ -44,6 +44,16 @@ class ImageIngestorTest {
     }
 
     @Test
+    fun `coordinates with latitude and longitude exchanged are swapped back when the photo shows it`() {
+        val swapped = asset(lat = 77.2005, lon = 28.6003, capturedAt = Instant.EPOCH)
+
+        val result = ImageIngestor.enrich(swapped, listOf(img("v.jpg", visual)))
+
+        assertEquals(28.6003, result.latitude)
+        assertEquals(77.2005, result.longitude)
+    }
+
+    @Test
     fun `images without metadata change nothing`() {
         val original = asset()
 

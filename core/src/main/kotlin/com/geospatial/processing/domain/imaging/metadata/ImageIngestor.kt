@@ -1,5 +1,7 @@
 package com.geospatial.processing.domain.imaging.metadata
 
+import com.geospatial.processing.domain.map.GeoPoint
+import com.geospatial.processing.domain.map.PositionCheck
 import com.geospatial.processing.domain.model.Asset
 import java.io.File
 import java.time.Instant
@@ -10,8 +12,9 @@ data class IngestedImage(val file: File, val meta: ImageMeta)
 /**
  * Pulls location and capture time out of an asset's image files.
  *
- * Only fills gaps: coordinates the user or the CSV already provided are never overwritten.
- * The no-fix position (0.0, 0.0) counts as "missing", because that is what an empty CSV cell becomes.
+ * Only fills gaps: coordinates the user or the CSV already provided are kept, except when the photo's GPS shows they have
+ * latitude and longitude exchanged (then they are swapped back). The no-fix position (0.0, 0.0) counts as "missing",
+ * because that is what an empty CSV cell becomes.
  */
 object ImageIngestor {
 
@@ -33,8 +36,14 @@ object ImageIngestor {
         val capturedAt: Instant? = images.mapNotNull { it.meta.capturedAt }.minOrNull()
 
         var result = asset
-        if (needsPosition && source != null) {
-            result = result.copy(latitude = source.meta.latitude!!, longitude = source.meta.longitude!!)
+        if (source != null) {
+            val photo = GeoPoint(source.meta.latitude!!, source.meta.longitude!!)
+            val stored = GeoPoint(asset.latitude, asset.longitude)
+            if (needsPosition) {
+                result = result.copy(latitude = photo.lat, longitude = photo.lon)
+            } else if (PositionCheck.swappedComparedTo(stored, photo)) {
+                result = result.copy(latitude = stored.lon, longitude = stored.lat)
+            }
         }
         if (asset.capturedAt == null && capturedAt != null) {
             result = result.copy(capturedAt = capturedAt)

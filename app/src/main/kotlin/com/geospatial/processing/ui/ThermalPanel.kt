@@ -31,10 +31,15 @@ import com.geospatial.processing.domain.thermal.ThermalFrame
 import com.geospatial.processing.domain.thermal.ThermalOverrides
 import com.geospatial.processing.domain.thermal.ThermalPalette
 import com.geospatial.processing.domain.thermal.ThermalStats
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.awt.image.BufferedImage
 import java.util.Locale
+
+/** How long the settings must stay unchanged before the picture is decoded again. */
+private const val SETTINGS_DEBOUNCE_MILLIS = 250L
 
 private sealed interface ThermalOutcome {
     /** Nothing to show: no image, or a plain photo without temperature data. */
@@ -64,15 +69,29 @@ fun ThermalPanel(
     val bytes by produceState<ByteArray?>(null, loadKey) {
         value = withContext(Dispatchers.IO) { runCatching(loadBytes).getOrNull() }
     }
+    // The file this panel last decoded, to tell "the scene settings changed" from "another picture".
+    val lastDecoded = remember { arrayOfNulls<ByteArray>(1) }
     val outcome by produceState<ThermalOutcome>(ThermalOutcome.None, bytes, overrides) {
         val data = bytes
-        value = if (data == null) ThermalOutcome.None else withContext(Dispatchers.Default) {
+        if (data == null) {
+            value = ThermalOutcome.None
+            return@produceState
+        }
+        // Typing in the emissivity or humidity field changes the settings on every key, and each change restarts this block.
+        // Waiting for a pause means one decode (and one palette render) per edit instead of one per key; a native decode
+        // cannot be cancelled once started. The first picture, and a different picture, appear without waiting.
+        if (lastDecoded[0] === data) delay(SETTINGS_DEBOUNCE_MILLIS)
+        value = withContext(Dispatchers.Default) {
             try {
                 ThermalOutcome.Decoded(engine.decode(data, overrides))
-            } catch (e: ThermalDecodeException) {
-                if (engine.decoderFor(data) == null) ThermalOutcome.None else ThermalOutcome.Unreadable(e.message ?: "Unreadable thermal image.")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) { // ThermalDecodeException with a message for the user, or anything unexpected
+                if (engine.decoderFor(data) == null) ThermalOutcome.None
+                else ThermalOutcome.Unreadable((e as? ThermalDecodeException)?.message ?: "This thermal image could not be read.")
             }
         }
+        lastDecoded[0] = data
     }
 
     when (val o = outcome) {

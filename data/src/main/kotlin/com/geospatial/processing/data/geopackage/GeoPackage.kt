@@ -259,9 +259,9 @@ object GeoPackage {
                     val point = if (geom == null) Point(0.0, 0.0) else parsePoint(geom)
                     if (point == null) { skipped += "row $fid ($id): unreadable or out-of-range position"; continue }
                     assets += Asset(
-                        id = id!!, pluginId = plugin!!, position = rs.getInt("position"),
+                        id = id, pluginId = plugin, position = rs.getInt("position"),
                         status = runCatching { RecordStatus.valueOf(rs.getString("status")) }.getOrDefault(RecordStatus.DRAFT),
-                        latitude = point.lat, longitude = point.lon, properties = props!!,
+                        latitude = point.lat, longitude = point.lon, properties = props,
                         capturedAt = rs.getString("captured_at")?.let { runCatching { Instant.parse(it) }.getOrNull() },
                         severity = Severity.fromName(rs.getString("severity")),
                     )

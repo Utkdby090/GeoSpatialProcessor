@@ -236,13 +236,17 @@ fun FrameWindowScope.MainScreen(
             if (showMap) {
                 MapWindow(
                     assets = state.displayedRecords,
+                    allAssets = state.records,
                     selectedId = state.selectedRecordId,
                     plugin = plugin,
                     tileLoader = tileLoader,
                     isDarkTheme = state.isDarkTheme,
                     positionIssues = state.positionIssues,
+                    allLookSwapped = state.allPositionsLookSwapped,
+                    images = { imageResolver.resolve(it, state.rootImageDirectory) },
                     onSelect = { onAction(WorkbenchAction.Select(it)) },
                     onFixSwapped = { onAction(WorkbenchAction.FixSwappedPositions) },
+                    onSwapAll = { onAction(WorkbenchAction.SwapAllPositions) },
                     onDismiss = { showMap = false },
                 )
             }

@@ -54,8 +54,12 @@ class AssetImageResolver(private val plugin: DomainPlugin, private val projectDi
     }
 
     /** An asset is READY when every slot has an image (manual or from the folder). */
-    fun isReady(asset: Asset, rootDir: String): Boolean =
-        resolve(asset, rootDir).values.none { it is ImageSource.Missing }
+    fun isReady(asset: Asset, rootDir: String): Boolean = isReady(resolve(asset, rootDir))
 
     private fun projectFile(relativePath: String) = File(projectDir, relativePath)
+
+    companion object {
+        /** READY from sources that were already resolved, so callers that need them for something else don't scan the folder twice. */
+        fun isReady(sources: Map<String, ImageSource>): Boolean = sources.values.none { it is ImageSource.Missing }
+    }
 }

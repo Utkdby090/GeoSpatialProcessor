@@ -5,7 +5,7 @@ import java.io.File
 import java.io.OutputStream
 
 /** Minimal plugin for :core tests: slots A and B, folder images named "<slot>.jpg" in <root>/<name>/. */
-internal class FakePlugin(
+internal open class FakePlugin(
     private val slots: List<String> = listOf("A", "B"),
     private val schema: List<PropertyDefinition> = emptyList(),
 ) : DomainPlugin {
@@ -29,7 +29,7 @@ internal class FakePlugin(
         override fun parse(file: File, onProgress: (Float) -> Unit) = emptyList<AssetDraft>()
     }
 
-    val written = mutableListOf<Triple<String, String?, String?>>()
+    val written: MutableList<Triple<String, String?, String?>> = java.util.Collections.synchronizedList(mutableListOf())
 
     override fun getReportStrategy() = object : ReportStrategy {
         override fun entryName(asset: Asset) = "${asset.property("folder")}/${asset.property("name")}.pdf"

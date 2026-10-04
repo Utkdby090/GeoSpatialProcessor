@@ -94,7 +94,25 @@ interface DomainPlugin {
 interface CsvImportStrategy {
     /** Reads [file]; [onProgress] receives 0..1. Rows that can't become an asset are skipped. */
     fun parse(file: File, onProgress: (Float) -> Unit = {}): List<AssetDraft>
+
+    /**
+     * Like [parse], but also says which rows were skipped and why, and gives a reason when nothing could be read,
+     * so the user is told instead of seeing an import that silently found no towers. Strategies that don't report
+     * this keep the default, which wraps [parse].
+     */
+    fun read(file: File, onProgress: (Float) -> Unit = {}): CsvImportResult = CsvImportResult(parse(file, onProgress))
 }
+
+/**
+ * What reading a CSV produced. [skippedRows] counts rows that could not become an asset; [skippedDetails] describes the
+ * first few of them. [problem] is set when the file could not be used at all (unreadable, or without the needed columns).
+ */
+data class CsvImportResult(
+    val drafts: List<AssetDraft>,
+    val skippedRows: Int = 0,
+    val skippedDetails: List<String> = emptyList(),
+    val problem: String? = null,
+)
 
 interface ReportStrategy {
     /** Path of the asset's PDF inside the bulk-export ZIP, e.g. "Tower_Reports/FAULT_Tower_76_0_Report.pdf". */

@@ -35,7 +35,7 @@ class TelecomReport(private val plugin: TelecomPlugin) : ReportStrategy {
             type.contains("earth", ignoreCase = true) -> "Earth_Wire_Joint_Reports" to "Earth_Wire_Joint"
             else -> "Tower_Reports" to "Tower"
         }
-        val safeTowerName = asset.property(K.TOWER_NUMBER).replace("[\\\\/:*?\"<>|]".toRegex(), "_")
+        val safeTowerName = asset.property(K.TOWER_NUMBER).replace(PATH_UNSAFE, "_")
         val faultStatusPrefix = if (TelecomPlugin.isFault(asset)) "FAULT" else "NORMAL"
         return "$folderName/${faultStatusPrefix}_${filePrefix}_${safeTowerName}_Report.pdf"
     }
@@ -147,7 +147,8 @@ class TelecomReport(private val plugin: TelecomPlugin) : ReportStrategy {
 
             // Dynamic circuits, sorted by the number in "Load CKT3" / "CKT4".
             val sortedCircuits = asset.properties.filterKeys { it.startsWith(K.LOAD_PREFIX) }.entries.sortedBy { entry ->
-                Regex("CKT\\s*(\\d+)", RegexOption.IGNORE_CASE).find(entry.key)?.groupValues?.get(1)?.toInt() ?: 0
+                // toIntOrNull: a column called "Load CKT99999999999" must not abort the whole export
+                CIRCUIT_NUMBER.find(entry.key)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             }
             sortedCircuits.forEach { (key, value) ->
                 addMetricCell(metricsTable, key.removePrefix(K.LOAD_PREFIX).uppercase(), value)
@@ -342,5 +343,11 @@ class TelecomReport(private val plugin: TelecomPlugin) : ReportStrategy {
             })
         }
         table.addCell(cell)
+    }
+
+    private companion object {
+        // Compiled once: used for every tower of an export.
+        val PATH_UNSAFE = Regex("[\\\\/:*?\"<>|]")
+        val CIRCUIT_NUMBER = Regex("CKT\\s*(\\d+)", RegexOption.IGNORE_CASE)
     }
 }
