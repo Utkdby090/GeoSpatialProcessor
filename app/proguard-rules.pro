@@ -60,3 +60,9 @@
 -keep class com.adobe.xmp.** { *; }
 -dontwarn com.drew.**
 -dontwarn com.adobe.xmp.**
+
+# DJI Thermal SDK via JNA: native calls and struct fields are bound by reflection.
+-keep class com.sun.jna.** { *; }
+-keep class * extends com.sun.jna.** { *; }
+-keep class com.geospatial.processing.domain.thermal.Dirp* { *; }
+-dontwarn com.sun.jna.**

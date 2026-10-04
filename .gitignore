@@ -45,3 +45,6 @@ bin/
 
 ### Logs written by unit tests (they run with the module as working directory) ###
 */logs/
+
+### DJI Thermal SDK checkout (sample images are ~100 MB; the needed DLLs are copied into core/src/main/resources/dji-sdk) ###
+dji/
