@@ -1,225 +1,176 @@
 package com.geospatial.processing.ui.map
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.TooltipPlacement
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
-import com.geospatial.processing.ui.CustomTitleBar
-import com.geospatial.processing.ui.theme.GeospatialEnterpriseTheme
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.toComposeImageBitmap
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.onPointerEvent
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
-import kotlin.math.roundToInt
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.layout.onSizeChanged
 import com.geospatial.processing.core.plugin.DomainPlugin
-import com.geospatial.processing.domain.map.GeoPoint
-import com.geospatial.processing.domain.map.MapViewport
-import com.geospatial.processing.domain.map.ScreenPoint
+import com.geospatial.processing.domain.map.PositionIssue
 import com.geospatial.processing.domain.map.TileKey
+import com.geospatial.processing.domain.map.WebMercator
 import com.geospatial.processing.domain.model.Asset
+import com.geospatial.processing.ui.CustomTitleBar
 import com.geospatial.processing.ui.components.severityColor
-import kotlinx.coroutines.Dispatchers
+import com.geospatial.processing.ui.theme.GeospatialEnterpriseTheme
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.jetbrains.skia.Image as SkiaImage
+import kotlinx.io.Buffer
+import ovh.plrapps.mapcompose.api.BoundingBox
+import ovh.plrapps.mapcompose.api.addLayer
+import ovh.plrapps.mapcompose.api.addMarker
+import ovh.plrapps.mapcompose.api.centerOnMarker
+import ovh.plrapps.mapcompose.api.centroidX
+import ovh.plrapps.mapcompose.api.centroidY
+import ovh.plrapps.mapcompose.api.hasMarker
+import ovh.plrapps.mapcompose.api.onMarkerClick
+import ovh.plrapps.mapcompose.api.removeAllMarkers
+import ovh.plrapps.mapcompose.api.scale
+import ovh.plrapps.mapcompose.api.scrollTo
+import ovh.plrapps.mapcompose.api.snapScrollTo
+import ovh.plrapps.mapcompose.api.updateMarkerZ
+import ovh.plrapps.mapcompose.core.TileStreamProvider
+import ovh.plrapps.mapcompose.ui.MapUI
+import ovh.plrapps.mapcompose.ui.state.MapState
+import kotlin.math.max
 
-private const val PIN_RADIUS_DP = 8f
-private const val HIT_RADIUS_DP = 14.0
-private const val MAX_CACHED_TILES = 400
-private const val MAX_FALLBACK_LEVELS = 4
-private const val ZOOM_MILLIS = 220
-private const val ZOOM_IN_START = 0.8f
-private const val ZOOM_OUT_START = 1.25f
+private const val LEVEL_COUNT = WebMercator.MAX_ZOOM + 1
+private const val FULL_SIZE = WebMercator.TILE_SIZE shl WebMercator.MAX_ZOOM
+/** Disk-cache reads and decoding run in parallel; network downloads are limited separately ([OsmTileFetcher]). */
+private const val TILE_WORKERS = 8
+/** Fitting never zooms closer than this share of the world (about 800 m), so a lone tower still shows its surroundings. */
+private const val MIN_FIT_SPAN = 0.00002
+private val FIT_PADDING = Offset(0.2f, 0.2f)
 
 /** Assets still at 0,0 have no position yet (the CSV left it blank and no image GPS filled it in). */
 private fun Asset.hasPosition() = !(latitude == 0.0 && longitude == 0.0)
 
+private fun Asset.mapX() = WebMercator.normalizedX(longitude)
+private fun Asset.mapY() = WebMercator.normalizedY(latitude)
+
+/** The smallest map area holding [assets], grown to at least [MIN_FIT_SPAN] each way; null for none. */
+private fun boundsOf(assets: List<Asset>): BoundingBox? {
+    if (assets.isEmpty()) return null
+    val cx = (assets.minOf { it.mapX() } + assets.maxOf { it.mapX() }) / 2
+    val cy = (assets.minOf { it.mapY() } + assets.maxOf { it.mapY() }) / 2
+    val halfW = max(MIN_FIT_SPAN, assets.maxOf { it.mapX() } - assets.minOf { it.mapX() }) / 2
+    val halfH = max(MIN_FIT_SPAN, assets.maxOf { it.mapY() } - assets.minOf { it.mapY() }) / 2
+    return BoundingBox(cx - halfW, cy - halfH, cx + halfW, cy + halfH)
+}
+
 /**
- * OpenStreetMap view of the project: one pin per positioned asset, coloured by severity.
- * Drag to pan, wheel to zoom at the cursor, click a pin to select it.
+ * OpenStreetMap view of the project (MapCompose): one pin per positioned asset, coloured by severity.
+ * Drag to pan, wheel or pinch to zoom smoothly, hover a pin for its name, click it to select the tower.
+ * Pins whose position looks wrong ([positionIssues]) get a warning ring, and a banner offers to swap back
+ * latitude/longitude pairs that were exchanged.
  */
-@OptIn(ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MapView(
     assets: List<Asset>,
     selectedId: String?,
     plugin: DomainPlugin,
     tileLoader: TileLoader,
+    positionIssues: List<PositionIssue>,
     onSelect: (Asset) -> Unit,
+    onFixSwapped: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val positioned = remember(assets) { assets.filter { it.hasPosition() } }
-    val points = remember(positioned) { positioned.map { GeoPoint(it.latitude, it.longitude) } }
+    val flagged = remember(positionIssues) { positionIssues.associateBy { it.id } }
+    // Frame the towers that look right, so one misplaced pin doesn't zoom the map out to the whole world.
+    val trusted = remember(positioned, flagged) { positioned.filter { it.id !in flagged }.ifEmpty { positioned } }
 
-    var viewport by remember { mutableStateOf(MapViewport.fit(emptyList(), 800.0, 600.0)) }
-    var sized by remember { mutableStateOf(false) }
-    var fitted by remember { mutableStateOf(false) }
-
-    val tiles = remember { mutableStateMapOf<TileKey, ImageBitmap>() }
-    val failed = remember { mutableStateMapOf<TileKey, Boolean>() }
-    val loading = remember { HashSet<TileKey>() }
-    val visible = remember(viewport) { viewport.visibleTiles() }
-
-    // Fit once when the size is known and there is something to show; after that the user is in charge.
-    LaunchedEffect(sized, points.isNotEmpty()) {
-        if (sized && !fitted && points.isNotEmpty()) {
-            viewport = MapViewport.fit(points, viewport.width, viewport.height)
-            fitted = true
+    // On high-density screens use tiles one level coarser, so street names stay readable instead of tiny.
+    val magnify = if (LocalDensity.current.density >= 1.75f) 1 else 0
+    val state = remember(tileLoader) {
+        MapState(LEVEL_COUNT, FULL_SIZE, FULL_SIZE, workerCount = TILE_WORKERS) {
+            magnifyingFactor(magnify)
+        }.apply {
+            // MapCompose owns (and closes) the returned source.
+            addLayer(TileStreamProvider { row, col, zoom -> tileLoader.load(TileKey(zoom, col, row))?.let { Buffer().apply { write(it) } } })
         }
+    }
+    DisposableEffect(state) { onDispose { state.shutdown() } }
+
+    val currentPositioned by rememberUpdatedState(positioned)
+    val currentOnSelect by rememberUpdatedState(onSelect)
+    LaunchedEffect(state) {
+        state.onMarkerClick { id, _, _ -> currentPositioned.firstOrNull { it.id == id }?.let(currentOnSelect) }
+    }
+
+    // Pins read these states, so selection and warnings update without re-adding every marker.
+    val selectedState = rememberUpdatedState(selectedId)
+    val flaggedState = rememberUpdatedState(flagged)
+    LaunchedEffect(state, positioned) {
+        state.removeAllMarkers()
+        positioned.forEach { asset ->
+            state.addMarker(
+                asset.id, asset.mapX(), asset.mapY(),
+                relativeOffset = Offset(-0.5f, -0.5f),
+                zIndex = if (asset.id == selectedState.value) 1f else 0f,
+            ) {
+                TooltipArea(
+                    tooltip = { PinTooltip(plugin.present(asset).listTitle, flaggedState.value[asset.id]) },
+                    delayMillis = 300,
+                    tooltipPlacement = TooltipPlacement.ComponentRect(Alignment.TopCenter, Alignment.TopCenter, DpOffset(0.dp, (-4).dp)),
+                ) {
+                    Pin(severityColor(asset.severity), selected = asset.id == selectedState.value, flagged = asset.id in flaggedState.value)
+                }
+            }
+        }
+    }
+
+    // Selected pin on top, and brought into view when it is chosen in the list.
+    var previousSelected by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(state, selectedId, positioned) {
+        previousSelected?.let { state.updateMarkerZ(it, 0f) }
+        if (selectedId != null && state.hasMarker(selectedId)) {
+            state.updateMarkerZ(selectedId, 1f)
+            state.centerOnMarker(selectedId)
+        }
+        previousSelected = selectedId
+    }
+
+    // Fit once there is something to show; after that the user is in charge.
+    var fitted by remember { mutableStateOf(false) }
+    LaunchedEffect(state, trusted) {
+        if (fitted) return@LaunchedEffect
+        boundsOf(trusted)?.let { state.snapScrollTo(it, FIT_PADDING); fitted = true }
     }
 
     val scope = rememberCoroutineScope()
-    LaunchedEffect(visible) {
-        // Keep memory bounded: when many tiles pile up, drop the ones not on screen (they reload from the disk cache).
-        if (tiles.size > MAX_CACHED_TILES) {
-            val keep = visible.map { it.key }.toSet()
-            tiles.keys.filter { it !in keep }.forEach { tiles.remove(it) }
-        }
-        visible.map { it.key }.distinct().filter { it !in tiles && failed[it] != true && loading.add(it) }.forEach { key ->
-            scope.launch {
-                val bytes = withContext(Dispatchers.IO) { tileLoader.load(key) }
-                // Decoding is off the UI thread too, so panning never stutters on it.
-                val image = withContext(Dispatchers.Default) {
-                    bytes?.let { runCatching { SkiaImage.makeFromEncoded(it).toComposeImageBitmap() }.getOrNull() }
-                }
-                loading.remove(key)
-                if (image != null) tiles[key] = image else failed[key] = true
-            }
-        }
-    }
+    fun zoomBy(factor: Double) = scope.launch { state.scrollTo(state.centroidX, state.centroidY, state.scale * factor) }
 
-    val selected = positioned.firstOrNull { it.id == selectedId }
+    Box(modifier.clipToBounds().background(Color(0xFFE5E7EB))) {
+        MapUI(Modifier.fillMaxSize(), state = state)
 
-    // A zoom step eases in: the new level starts slightly scaled and settles to 1, around the zoom anchor.
-    val zoomScale = remember { Animatable(1f) }
-    var zoomPivot by remember { mutableStateOf(TransformOrigin.Center) }
-    fun zoomTo(level: Int, anchor: ScreenPoint) {
-        val next = viewport.withZoom(level, anchor)
-        if (next.zoom == viewport.zoom) return
-        zoomPivot = TransformOrigin((anchor.x / viewport.width).toFloat(), (anchor.y / viewport.height).toFloat())
-        val zoomingIn = next.zoom > viewport.zoom
-        viewport = next
-        scope.launch {
-            zoomScale.snapTo(if (zoomingIn) ZOOM_IN_START else ZOOM_OUT_START)
-            zoomScale.animateTo(1f, tween(ZOOM_MILLIS, easing = FastOutSlowInEasing))
-        }
-    }
-    fun zoomBy(step: Int, anchor: ScreenPoint = ScreenPoint(viewport.width / 2, viewport.height / 2)) = zoomTo(viewport.zoom + step, anchor)
-
-    Box(modifier.background(Color(0xFFE5E7EB))) {
-        Canvas(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer { scaleX = zoomScale.value; scaleY = zoomScale.value; transformOrigin = zoomPivot }
-                .onSizeChanged { size ->
-                    viewport = viewport.withSize(size.width.toDouble(), size.height.toDouble())
-                    sized = size.width > 0 && size.height > 0
-                }
-                .onPointerEvent(PointerEventType.Scroll) { event ->
-                    val change = event.changes.first()
-                    val dy = change.scrollDelta.y
-                    if (dy != 0f) {
-                        val at = ScreenPoint(change.position.x.toDouble(), change.position.y.toDouble())
-                        zoomBy(if (dy < 0) 1 else -1, at)
-                        change.consume()
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectDragGestures { change, drag ->
-                        change.consume()
-                        viewport = viewport.panBy(drag.x.toDouble(), drag.y.toDouble())
-                    }
-                }
-                .pointerInput(positioned) {
-                    detectTapGestures { pos ->
-                        val hit = viewport.nearest(
-                            positioned, { GeoPoint(it.latitude, it.longitude) },
-                            pos.x.toDouble(), pos.y.toDouble(), HIT_RADIUS_DP * density,
-                        )
-                        if (hit != null) onSelect(hit)
-                    }
-                },
-        ) {
-            visible.forEach { placed ->
-                val dst = IntOffset(placed.left.roundToInt(), placed.top.roundToInt())
-                // 257 px: a one-pixel overlap hides hairline seams between rounded tile edges.
-                val dstSize = IntSize(257, 257)
-                val exact = tiles[placed.key]
-                if (exact != null) {
-                    drawImage(exact, dstOffset = dst, dstSize = dstSize)
-                } else {
-                    // Not loaded yet: show the blurry enlarged part of a coarser tile we already have.
-                    for (up in 1..MAX_FALLBACK_LEVELS) {
-                        val level = placed.key.zoom - up
-                        if (level < 0) break
-                        val parent = tiles[TileKey(level, placed.key.x shr up, placed.key.y shr up)] ?: continue
-                        val part = 256 shr up
-                        val mask = (1 shl up) - 1
-                        drawImage(
-                            parent,
-                            srcOffset = IntOffset((placed.key.x and mask) * part, (placed.key.y and mask) * part),
-                            srcSize = IntSize(part, part),
-                            dstOffset = dst,
-                            dstSize = dstSize,
-                        )
-                        break
-                    }
-                }
-            }
-
-            val r = PIN_RADIUS_DP.dp.toPx()
-            // Selected pin last so it is never hidden under a neighbour.
-            (positioned.filter { it.id != selectedId } + listOfNotNull(selected)).forEach { asset ->
-                val s = viewport.toScreen(GeoPoint(asset.latitude, asset.longitude))
-                val centre = Offset(s.x.toFloat(), s.y.toFloat())
-                val isSelected = asset.id == selectedId
-                drawCircle(Color.White, radius = (if (isSelected) r * 1.5f else r) + 2.dp.toPx(), center = centre)
-                drawCircle(severityColor(asset.severity), radius = if (isSelected) r * 1.5f else r, center = centre)
-                if (isSelected) drawCircle(Color.Black, radius = r * 1.5f + 2.dp.toPx(), center = centre, style = Stroke(1.5.dp.toPx()))
-            }
-        }
-
-        // Selected tower's name, so the pin can be told apart without leaving the map.
-        selected?.let {
-            Surface(
-                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
-                shape = MaterialTheme.shapes.small,
-                tonalElevation = 2.dp,
-                shadowElevation = 2.dp,
-            ) {
-                Text(plugin.present(it).sequenceLabel, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), fontSize = 13.sp)
-            }
+        Column(Modifier.align(Alignment.TopStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            positioned.firstOrNull { it.id == selectedId }?.let { SelectedCard(plugin.present(it).sequenceLabel, it) }
+            if (positionIssues.isNotEmpty()) IssueBanner(positionIssues, assets, plugin, onFixSwapped)
         }
 
         Column(Modifier.align(Alignment.TopEnd).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            FilledTonalIconButton(onClick = { zoomBy(1) }) { Text("+") }
-            FilledTonalIconButton(onClick = { zoomBy(-1) }) { Text("−") }
+            FilledTonalIconButton(onClick = { zoomBy(2.0) }) { Text("+") }
+            FilledTonalIconButton(onClick = { zoomBy(0.5) }) { Text("−") }
             FilledTonalIconButton(
-                enabled = points.isNotEmpty(),
-                onClick = { viewport = MapViewport.fit(points, viewport.width, viewport.height) },
+                enabled = trusted.isNotEmpty(),
+                onClick = { boundsOf(trusted)?.let { scope.launch { state.scrollTo(it, FIT_PADDING) } } },
             ) { Text("⌖") }
         }
 
@@ -234,8 +185,85 @@ fun MapView(
             color = Color.DarkGray,
         )
 
-        if (points.isEmpty()) {
+        if (positioned.isEmpty()) {
             Text("No tower has a position yet.", Modifier.align(Alignment.Center), color = Color.DarkGray)
+        }
+    }
+}
+
+@Composable
+private fun Pin(color: Color, selected: Boolean, flagged: Boolean) {
+    val size = if (selected) 24.dp else 16.dp
+    Box(
+        Modifier
+            .size(size + 8.dp) // a little extra around the dot makes it easier to hit
+            .padding(4.dp)
+            .then(if (flagged) Modifier.border(2.dp, Color(0xFFFACC15), CircleShape) else Modifier)
+            .padding(if (flagged) 2.dp else 0.dp)
+            .background(Color.White, CircleShape)
+            .padding(2.dp)
+            .background(color, CircleShape)
+            .then(if (selected) Modifier.border(1.5.dp, Color.Black, CircleShape) else Modifier),
+    )
+}
+
+@Composable
+private fun PinTooltip(title: String, issue: PositionIssue?) {
+    Surface(shape = MaterialTheme.shapes.small, tonalElevation = 3.dp, shadowElevation = 3.dp) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Text(title, fontSize = 12.sp)
+            issue?.let { Text(issueText(it), fontSize = 11.sp, color = MaterialTheme.colorScheme.error) }
+        }
+    }
+}
+
+private fun issueText(issue: PositionIssue) = when (issue) {
+    is PositionIssue.Swapped -> "Latitude and longitude look swapped"
+    is PositionIssue.Outlier -> "%,.0f km from the other towers".format(issue.distanceKm)
+    is PositionIssue.Invalid -> "Not a valid position"
+}
+
+/** The selected tower's name and exact coordinates, so its position can be checked against the survey. */
+@Composable
+private fun SelectedCard(label: String, asset: Asset) {
+    Surface(shape = MaterialTheme.shapes.small, tonalElevation = 2.dp, shadowElevation = 2.dp) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Text(label, fontSize = 13.sp)
+            Text("%.6f, %.6f".format(asset.latitude, asset.longitude), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun IssueBanner(issues: List<PositionIssue>, assets: List<Asset>, plugin: DomainPlugin, onFixSwapped: () -> Unit) {
+    val byId = remember(assets) { assets.associateBy { it.id } }
+    fun names(list: List<PositionIssue>) = list.mapNotNull { byId[it.id]?.let { a -> plugin.present(a).sequenceLabel } }
+        .let { n -> n.take(4).joinToString(", ") + if (n.size > 4) " +${n.size - 4}" else "" }
+    val swapped = issues.filterIsInstance<PositionIssue.Swapped>()
+    val other = issues.filter { it !is PositionIssue.Swapped }
+
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.errorContainer,
+        shadowElevation = 2.dp,
+        modifier = Modifier.widthIn(max = 380.dp),
+    ) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (swapped.isNotEmpty()) {
+                Text(
+                    "${swapped.size} tower${if (swapped.size == 1) " has" else "s have"} latitude and longitude swapped: ${names(swapped)}",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                Button(onClick = onFixSwapped, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Text("Swap back", fontSize = 12.sp)
+                }
+            }
+            if (other.isNotEmpty()) {
+                Text(
+                    "Check the coordinates of ${names(other)}: far from the other towers or not a valid position.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
         }
     }
 }
@@ -251,7 +279,9 @@ fun MapWindow(
     plugin: DomainPlugin,
     tileLoader: TileLoader,
     isDarkTheme: Boolean,
+    positionIssues: List<PositionIssue>,
     onSelect: (Asset) -> Unit,
+    onFixSwapped: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val windowState = rememberWindowState(width = 1100.dp, height = 750.dp, position = WindowPosition(Alignment.Center))
@@ -265,7 +295,7 @@ fun MapWindow(
         GeospatialEnterpriseTheme(darkTheme = isDarkTheme) {
             Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                 CustomTitleBar(windowState = windowState, onCloseApp = onDismiss, appName = "Tower Map")
-                MapView(assets, selectedId, plugin, tileLoader, onSelect, Modifier.fillMaxSize())
+                MapView(assets, selectedId, plugin, tileLoader, positionIssues, onSelect, onFixSwapped, Modifier.fillMaxSize().weight(1f))
             }
         }
     }

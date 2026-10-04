@@ -2,6 +2,7 @@ package com.geospatial.processing.core.plugin.telecom
 
 import com.geospatial.processing.core.plugin.CsvImportStrategy
 import com.geospatial.processing.core.plugin.telecom.TelecomKeys as K
+import com.geospatial.processing.domain.map.Coordinates
 import com.geospatial.processing.domain.model.AssetDraft
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVParser
@@ -83,9 +84,11 @@ class TelecomCsvImport : CsvImportStrategy {
             }
         }
 
+        // Decimal or degrees/minutes/seconds; a missing or unreadable pair stays 0,0 ("no position yet").
+        val position = Coordinates.parsePair(getSafeByName(record, "Lat."), getSafeByName(record, "Long."))
         return AssetDraft(
-            latitude = getSafeByName(record, "Lat.").toDoubleOrNull() ?: 0.0,
-            longitude = getSafeByName(record, "Long.").toDoubleOrNull() ?: 0.0,
+            latitude = position?.lat ?: 0.0,
+            longitude = position?.lon ?: 0.0,
             properties = properties,
         )
     }
