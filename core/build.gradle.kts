@@ -7,4 +7,5 @@ plugins {
 dependencies {
     api(libs.kotlinx.serialization.json)
     implementation(libs.metadata.extractor)
+    implementation(libs.jna)
 }
