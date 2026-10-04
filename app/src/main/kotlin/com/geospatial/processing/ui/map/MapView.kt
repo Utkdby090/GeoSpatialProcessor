@@ -26,6 +26,7 @@ import com.geospatial.processing.domain.map.PositionIssue
 import com.geospatial.processing.domain.map.TileKey
 import com.geospatial.processing.domain.map.WebMercator
 import com.geospatial.processing.domain.model.Asset
+import com.geospatial.processing.domain.model.ImageSource
 import com.geospatial.processing.ui.CustomTitleBar
 import com.geospatial.processing.ui.components.severityColor
 import com.geospatial.processing.ui.theme.GeospatialEnterpriseTheme
@@ -40,6 +41,7 @@ import ovh.plrapps.mapcompose.api.centroidX
 import ovh.plrapps.mapcompose.api.centroidY
 import ovh.plrapps.mapcompose.api.hasMarker
 import ovh.plrapps.mapcompose.api.onMarkerClick
+import ovh.plrapps.mapcompose.api.onTap
 import ovh.plrapps.mapcompose.api.removeAllMarkers
 import ovh.plrapps.mapcompose.api.scale
 import ovh.plrapps.mapcompose.api.scrollTo
@@ -99,7 +101,8 @@ private fun boundsOf(assets: List<Asset>): BoundingBox? {
 
 /**
  * OpenStreetMap view of the project (MapCompose): one pin per positioned asset, coloured by severity.
- * Drag to pan, wheel or pinch to zoom smoothly, hover a pin for its name, click it to select the tower.
+ * Drag to pan, wheel or pinch to zoom smoothly, hover a pin for its name, click it to select the tower and open its
+ * [TowerCard] (photos and details); [images] resolves a tower's photos.
  * Pins whose position looks wrong ([positionIssues]) get a warning ring, and a banner offers to swap back
  * latitude/longitude pairs that were exchanged.
  */
@@ -112,6 +115,7 @@ fun MapView(
     tileLoader: TileLoader,
     positionIssues: List<PositionIssue>,
     allLookSwapped: Boolean,
+    images: (Asset) -> Map<String, ImageSource>,
     onSelect: (Asset) -> Unit,
     onFixSwapped: () -> Unit,
     onSwapAll: () -> Unit,
@@ -136,10 +140,16 @@ fun MapView(
     }
     DisposableEffect(state) { onDispose { state.shutdown() } }
 
+    // The tower whose card is open: set by clicking its pin, cleared by the card's close button or a click on the map.
+    var cardId by remember { mutableStateOf<String?>(null) }
     val currentPositioned by rememberUpdatedState(positioned)
     val currentOnSelect by rememberUpdatedState(onSelect)
     LaunchedEffect(state) {
-        state.onMarkerClick { id, _, _ -> currentPositioned.firstOrNull { it.id == id }?.let(currentOnSelect) }
+        state.onMarkerClick { id, _, _ ->
+            cardId = id
+            currentPositioned.firstOrNull { it.id == id }?.let(currentOnSelect)
+        }
+        state.onTap { _, _ -> cardId = null }
     }
 
     // Pins read these states, so selection and warnings update without re-adding every marker.
@@ -189,13 +199,27 @@ fun MapView(
     val scope = rememberCoroutineScope()
     fun zoomBy(factor: Double) = scope.launch { state.scrollTo(state.centroidX, state.centroidY, state.scale * factor) }
 
-    Box(modifier.clipToBounds().background(Color(0xFFE5E7EB))) {
+    BoxWithConstraints(modifier.clipToBounds().background(Color(0xFFE5E7EB))) {
         MapUI(Modifier.fillMaxSize(), state = state)
 
         Column(Modifier.align(Alignment.TopStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            positioned.firstOrNull { it.id == selectedId }?.let { SelectedCard(plugin.present(it).sequenceLabel, it) }
             if (allLookSwapped) SwapAllBanner(positioned.size) { confirmSwapAll = true }
             else if (positionIssues.isNotEmpty()) IssueBanner(positionIssues, assets, plugin, onFixSwapped)
+
+            val cardAsset = positioned.firstOrNull { it.id == cardId }
+            if (cardAsset != null) {
+                TowerCard(
+                    asset = cardAsset,
+                    plugin = plugin,
+                    images = images,
+                    issue = flagged[cardAsset.id],
+                    // Room left under the banners; the card scrolls inside it.
+                    maxHeight = maxHeight - if (allLookSwapped || positionIssues.isNotEmpty()) 140.dp else 24.dp,
+                    onClose = { cardId = null },
+                )
+            } else {
+                positioned.firstOrNull { it.id == selectedId }?.let { SelectedCard(plugin.present(it).sequenceLabel, it) }
+            }
         }
 
         Column(Modifier.align(Alignment.TopEnd).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -293,7 +317,7 @@ private fun PinTooltip(title: String, issue: PositionIssue?) {
     }
 }
 
-private fun issueText(issue: PositionIssue) = when (issue) {
+internal fun issueText(issue: PositionIssue) = when (issue) {
     is PositionIssue.Swapped -> "Latitude and longitude look swapped"
     is PositionIssue.Outlier -> "%,.0f km from the other towers".format(issue.distanceKm)
     is PositionIssue.Invalid -> "Not a valid position"
@@ -357,6 +381,7 @@ fun MapWindow(
     isDarkTheme: Boolean,
     positionIssues: List<PositionIssue>,
     allLookSwapped: Boolean,
+    images: (Asset) -> Map<String, ImageSource>,
     onSelect: (Asset) -> Unit,
     onFixSwapped: () -> Unit,
     onSwapAll: () -> Unit,
@@ -374,7 +399,7 @@ fun MapWindow(
             Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                 CustomTitleBar(windowState = windowState, onCloseApp = onDismiss, appName = "Tower Map")
                 MapView(
-                    assets, selectedId, plugin, tileLoader, positionIssues, allLookSwapped,
+                    assets, selectedId, plugin, tileLoader, positionIssues, allLookSwapped, images,
                     onSelect, onFixSwapped, onSwapAll, Modifier.fillMaxSize().weight(1f),
                 )
             }

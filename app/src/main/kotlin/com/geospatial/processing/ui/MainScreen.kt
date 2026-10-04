@@ -242,6 +242,7 @@ fun FrameWindowScope.MainScreen(
                     isDarkTheme = state.isDarkTheme,
                     positionIssues = state.positionIssues,
                     allLookSwapped = state.allPositionsLookSwapped,
+                    images = { imageResolver.resolve(it, state.rootImageDirectory) },
                     onSelect = { onAction(WorkbenchAction.Select(it)) },
                     onFixSwapped = { onAction(WorkbenchAction.FixSwappedPositions) },
                     onSwapAll = { onAction(WorkbenchAction.SwapAllPositions) },
