@@ -54,13 +54,16 @@ class AppViewModelTest {
     private val opener = FakeOpener()
     private val workspaces = mutableListOf<FakeWorkspace>()
     private val validProjects = mutableSetOf(projectA, projectB)
+    private var openFailure: Exception? = null
+    private val missingWorkspaces = mutableSetOf<File>()
 
     private fun newViewModel() = AppViewModel(
         licenseGate = gate,
         workspaceStore = store,
         projectOpener = opener,
         readProjectConfig = { dir -> if (dir in validProjects) ProjectConfig(dir.name, "com.geo.telecom", 0, 0) else null },
-        openWorkspace = { dir -> FakeWorkspace(dir).also { workspaces += it } },
+        openWorkspace = { dir -> openFailure?.let { throw it }; FakeWorkspace(dir).also { workspaces += it } },
+        workspaceExists = { it !in missingWorkspaces },
     )
 
     @Test
@@ -156,6 +159,78 @@ class AppViewModelTest {
         assertEquals(listOf(projectA), opener.closed)
         assertTrue(workspaces.first().closed)
         assertEquals(AppScreen.Dashboard(File("other-ws")), vm.screen.value)
+    }
+
+    @Test
+    fun `a remembered workspace that no longer exists sends the user to choose one`() {
+        missingWorkspaces += workspace
+
+        val vm = newViewModel()
+
+        assertEquals(AppScreen.WorkspaceSelection, vm.screen.value)
+        assertEquals(emptyList(), workspaces, "nothing was opened")
+        assertNotNull(vm.banner.value, "the licence banner is unaffected")
+    }
+
+    @Test
+    fun `a workspace that fails to open leaves the user choosing, and is not remembered`() {
+        store.last = null
+        val vm = newViewModel()
+        openFailure = IOException("access denied")
+
+        assertFalse(vm.selectWorkspace(File("locked-ws")))
+
+        assertEquals(AppScreen.WorkspaceSelection, vm.screen.value)
+        assertNull(store.last, "a workspace that did not open is not restored on the next start")
+    }
+
+    @Test
+    fun `a failing workspace at startup does not crash the app`() {
+        openFailure = IOException("drive not ready")
+
+        val vm = newViewModel()
+
+        assertEquals(AppScreen.WorkspaceSelection, vm.screen.value)
+    }
+
+    @Test
+    fun `after a failed switch the previous workspace is already closed and nothing is left open`() {
+        val vm = newViewModel()
+        vm.openProject(projectA)
+        openFailure = IOException("access denied")
+
+        assertFalse(vm.selectWorkspace(File("other-ws")))
+
+        assertEquals(AppScreen.WorkspaceSelection, vm.screen.value)
+        assertEquals(listOf(projectA), opener.closed, "the open project was closed")
+        assertTrue(workspaces.single().closed)
+        vm.shutdown() // must not close anything twice or throw
+    }
+
+    @Test
+    fun `selecting a workspace returns true and remembers it`() {
+        store.last = null
+        val vm = newViewModel()
+
+        assertTrue(vm.selectWorkspace(workspace))
+        assertEquals(workspace, store.last)
+    }
+
+    @Test
+    fun `opening a project from the selection screen is refused`() {
+        store.last = null
+        val vm = newViewModel()
+
+        assertFalse(vm.openProject(projectA))
+        assertEquals(emptyList(), opener.opened)
+    }
+
+    @Test
+    fun `closing when no project is open does nothing`() {
+        val vm = newViewModel()
+        vm.closeProject()
+        assertEquals(AppScreen.Dashboard(workspace), vm.screen.value)
+        assertEquals(emptyList(), opener.closed)
     }
 
     @Test

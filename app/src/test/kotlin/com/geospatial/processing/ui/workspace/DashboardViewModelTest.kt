@@ -107,6 +107,129 @@ class DashboardViewModelTest {
     }
 
     @Test
+    fun `rename refuses names that could leave the workspace or are not allowed, and says why`() {
+        val vm = newViewModel()
+        vm.createProject("com.geo.telecom", "Keep")
+        val project = File(workspace, "Keep")
+
+        for (bad in listOf("..\\Escaped", "../Escaped", "a/b", "a:b", ".hidden", "CON", "x".repeat(200), "")) {
+            vm.dismissNotice()
+            val renamed = vm.renameProject(project, bad)
+            assertFalse(renamed, "'$bad'")
+            if (bad.isNotEmpty()) assertEquals("Project not renamed", vm.state.value.notice?.title, "'$bad' gets an explanation")
+            assertTrue(project.isDirectory, "'$bad' left the project where it was")
+        }
+        assertEquals(listOf("Keep"), workspace.list()!!.toList(), "nothing was moved, nothing appeared outside")
+        assertFalse(File(root, "Escaped").exists())
+    }
+
+    @Test
+    fun `rename onto an existing project is refused with a notice and a successful rename reports true`() {
+        val vm = newViewModel()
+        vm.createProject("com.geo.telecom", "One")
+        vm.createProject("com.geo.telecom", "Two")
+
+        assertFalse(vm.renameProject(File(workspace, "One"), "Two"))
+        assertEquals("Project not renamed", vm.state.value.notice?.title)
+        assertTrue(File(workspace, "One").isDirectory && File(workspace, "Two").isDirectory)
+
+        vm.dismissNotice()
+        assertTrue(vm.renameProject(File(workspace, "One"), "  Three  "), "surrounding spaces are ignored")
+        assertNull(vm.state.value.notice)
+        assertTrue(File(workspace, "Three").isDirectory)
+    }
+
+    @Test
+    fun `renaming to the same name is a quiet no-op`() {
+        val vm = newViewModel()
+        vm.createProject("com.geo.telecom", "Same")
+
+        assertFalse(vm.renameProject(File(workspace, "Same"), "Same"))
+        assertNull(vm.state.value.notice)
+    }
+
+    @Test
+    fun `a name with spaces and accents is allowed for a rename`() {
+        val vm = newViewModel()
+        vm.createProject("com.geo.telecom", "Plain")
+
+        assertTrue(vm.renameProject(File(workspace, "Plain"), "Línea Norte 2"))
+        assertEquals(listOf("Línea Norte 2"), vm.state.value.projects.map { it.name })
+    }
+
+    @Test
+    fun `soft deleting two projects of the same name keeps both`() {
+        val vm = newViewModel()
+        vm.createProject("com.geo.telecom", "Dup")
+        vm.deleteProject(File(workspace, "Dup"), moveToTrash = false)
+        vm.createProject("com.geo.telecom", "Dup")
+        File(workspace, "Dup/marker.txt").writeText("second")
+
+        vm.deleteProject(File(workspace, "Dup"), moveToTrash = false)
+
+        assertEquals(emptyList(), vm.state.value.projects)
+        assertNull(vm.state.value.notice, "no failure was reported")
+        val kept = workspace.list()!!.filter { it.startsWith(".deleted_Dup") }
+        assertEquals(2, kept.size, "$kept")
+        assertTrue(kept.any { File(workspace, "$it/marker.txt").isFile })
+    }
+
+    @Test
+    fun `a project that cannot be removed is reported`() {
+        val failing = ProjectTrash { _, _ -> throw java.io.IOException("in use by another program") }
+        val vm = DashboardViewModel(workspace, navigator, listOf(TelecomPlugin()), legacyOffer, failing, Dispatchers.Unconfined)
+        vm.createProject("com.geo.telecom", "Busy")
+
+        vm.deleteProject(File(workspace, "Busy"), moveToTrash = false)
+
+        assertEquals("Project not removed", vm.state.value.notice?.title)
+        assertTrue(vm.state.value.notice!!.message.contains("in use by another program"))
+        assertEquals(listOf("Busy"), vm.state.value.projects.map { it.name })
+    }
+
+    @Test
+    fun `a blank project name is refused with a notice, and a failing workspace does not crash`() {
+        val vm = newViewModel()
+        assertFalse(vm.createProject("com.geo.telecom", "   "))
+        assertEquals("Project not created", vm.state.value.notice?.title)
+        assertEquals(emptyList(), navigator.opened)
+
+        vm.dismissNotice()
+        val file = File(root, "not-a-folder").apply { writeText("x") }
+        val broken = DashboardViewModel(file, navigator, listOf(TelecomPlugin()), legacyOffer, io = Dispatchers.Unconfined)
+        assertFalse(broken.createProject("com.geo.telecom", "Anything"))
+        assertEquals("Project not created", broken.state.value.notice?.title)
+    }
+
+    @Test
+    fun `non-English names make separate projects instead of colliding`() {
+        val vm = newViewModel()
+
+        assertTrue(vm.createProject("com.geo.telecom", "线路甲"))
+        assertTrue(vm.createProject("com.geo.telecom", "线路乙"))
+
+        assertEquals(setOf("线路甲", "线路乙"), vm.state.value.projects.map { it.name }.toSet())
+    }
+
+    @Test
+    fun `the project worked on last is listed first, not the one whose folder changed last`() {
+        val vm = newViewModel()
+        vm.createProject("com.geo.telecom", "Older")
+        vm.createProject("com.geo.telecom", "Newer")
+        val now = System.currentTimeMillis()
+        // "Older" has the more recent database write even though its folder itself is older.
+        File(workspace, "Newer").setLastModified(now - 3_000_000)
+        File(workspace, "Newer/project.db").setLastModified(now - 3_000_000)
+        File(workspace, "Newer/project.json").setLastModified(now - 3_000_000)
+        File(workspace, "Older").setLastModified(now - 9_000_000)
+        File(workspace, "Older/project.db").setLastModified(now - 1_000)
+
+        vm.refresh()
+
+        assertEquals(listOf("Older", "Newer"), vm.state.value.projects.map { it.name })
+    }
+
+    @Test
     fun `export adds the geox extension and import opens a copy`() = runBlocking {
         val vm = newViewModel()
         vm.createProject("com.geo.telecom", "Exported")

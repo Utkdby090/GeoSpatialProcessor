@@ -74,6 +74,9 @@ private fun fanOutOffsets(assets: List<Asset>): Map<String, DpOffset> =
     MapLayout.fanOut(assets.associate { it.id to it.geoPoint() })
         .mapValues { (_, d) -> DpOffset(FAN_OUT_RADIUS * d.first.toFloat(), FAN_OUT_RADIUS * d.second.toFloat()) }
 
+/** What decides where a pin is drawn; two lists with equal spots need no marker changes. */
+private data class PinSpot(val id: String, val latitude: Double, val longitude: Double)
+
 private fun Asset.geoPoint() = GeoPoint(latitude, longitude)
 
 /** Real coordinates only: 0,0 means "no position yet", and NaN or out-of-range values would break the map layout. */
@@ -153,10 +156,15 @@ fun MapView(
         state.onTap { _, _ -> cardId = null }
     }
 
-    // Pins read these states, so selection and warnings update without re-adding every marker.
+    // Pins read these states, so selection, warnings, severity and names update without re-adding every marker.
     val selectedState = rememberUpdatedState(selectedId)
     val flaggedState = rememberUpdatedState(flagged)
-    LaunchedEffect(state, positioned, plugin) {
+    val liveById = rememberUpdatedState(remember(positioned) { positioned.associateBy { it.id } })
+
+    // Markers are rebuilt only when a pin has to move or appear: every save replaces the list of towers, and rebuilding
+    // them all (and the clustering with them) for an edit that did not change any position makes a large map flicker.
+    val spots = remember(positioned) { positioned.map { PinSpot(it.id, it.latitude, it.longitude) } }
+    LaunchedEffect(state, spots, plugin) {
         state.removeAllMarkers()
         val fanOut = fanOutOffsets(positioned)
         positioned.forEach { asset ->
@@ -167,12 +175,13 @@ fun MapView(
                 zIndex = if (asset.id == selectedState.value) 1f else 0f,
                 renderingStrategy = RenderingStrategy.Clustering(CLUSTERER),
             ) {
+                val live = liveById.value[asset.id] ?: asset // the tower as it is now, not as it was when the pin was made
                 TooltipArea(
-                    tooltip = { PinTooltip(plugin.present(asset).listTitle, flaggedState.value[asset.id]) },
+                    tooltip = { PinTooltip(plugin.present(live).listTitle, flaggedState.value[asset.id]) },
                     delayMillis = 300,
                     tooltipPlacement = TooltipPlacement.ComponentRect(Alignment.TopCenter, Alignment.TopCenter, DpOffset(0.dp, (-4).dp)),
                 ) {
-                    Pin(severityColor(asset.severity), selected = asset.id == selectedState.value, flagged = asset.id in flaggedState.value)
+                    Pin(severityColor(live.severity), selected = asset.id == selectedState.value, flagged = asset.id in flaggedState.value)
                 }
             }
         }

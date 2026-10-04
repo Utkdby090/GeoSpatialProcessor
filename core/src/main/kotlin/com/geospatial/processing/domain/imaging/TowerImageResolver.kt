@@ -31,6 +31,12 @@ object TowerImageResolver {
 
     private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png")
 
+    // Compiled once: tokenize() runs for every image of every tower during a scan.
+    private val PATH_UNSAFE = Regex("[\\\\/:*?\"<>|]")
+    private val CAMEL_CASE = Regex("([a-z])([A-Z])")
+    private val ACRONYM = Regex("([A-Z]+)([A-Z][a-z])")
+    private val TOKEN_SPLIT = Regex("[^a-z0-9]+|(?<=[a-z])(?=[0-9])|(?<=[0-9])(?=[a-z])")
+
     // --- keyword tables -------------------------------------------------------------------------
 
     private val THERMAL_TOKENS = setOf("thermal", "ir", "irx", "radiometric", "flir", "lwir")
@@ -69,7 +75,7 @@ object TowerImageResolver {
         if (rootDir.isBlank()) return null
         val root = try { File(rootDir).canonicalFile } catch (e: Exception) { return null }
         val trimmed = towerNumber.trim()
-        val candidates = listOf(trimmed, trimmed.replace(Regex("[\\\\/:*?\"<>|]"), "_")).distinct()
+        val candidates = listOf(trimmed, trimmed.replace(PATH_UNSAFE, "_")).distinct()
 
         for (name in candidates) {
             if (name.isEmpty() || name == "." || name == "..") continue
@@ -115,10 +121,10 @@ object TowerImageResolver {
     internal fun tokenize(fileName: String): List<String> {
         val base = fileName.substringBeforeLast('.')
         return base
-            .replace(Regex("([a-z])([A-Z])"), "$1 $2")              // camelCase -> camel Case
-            .replace(Regex("([A-Z]+)([A-Z][a-z])"), "$1 $2")        // IRImage -> IR Image
+            .replace(CAMEL_CASE, "$1 $2")              // camelCase -> camel Case
+            .replace(ACRONYM, "$1 $2")        // IRImage -> IR Image
             .lowercase()
-            .split(Regex("[^a-z0-9]+|(?<=[a-z])(?=[0-9])|(?<=[0-9])(?=[a-z])"))
+            .split(TOKEN_SPLIT)
             .filter { it.isNotEmpty() }
     }
 

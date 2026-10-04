@@ -54,6 +54,8 @@ class AppViewModel(
     private val projectOpener: ProjectOpener,
     private val readProjectConfig: (File) -> ProjectConfig? = ProjectManager::readProjectConfig,
     private val openWorkspace: (File) -> Closeable = WorkspaceSession::open,
+    /** Whether the remembered workspace is still there; tests replace it because they use made-up folder names. */
+    private val workspaceExists: (File) -> Boolean = File::isDirectory,
 ) : AppNavigator {
 
     private val log = LoggerFactory.getLogger(AppViewModel::class.java)
@@ -84,20 +86,35 @@ class AppViewModel(
 
     private fun onAuthorized() {
         _banner.value = licenseGate.banner()
-        workspaceStore.lastWorkspace()?.let { enterWorkspace(it) }
+        // A remembered workspace that is gone (an unplugged drive, a deleted folder) sends the user to pick one, instead
+        // of an empty dashboard that cannot create or open anything.
+        workspaceStore.lastWorkspace()?.takeIf(workspaceExists)?.let { enterWorkspace(it) }
     }
 
-    fun selectWorkspace(workspaceDir: File) {
-        if (!workspaceDir.exists()) workspaceDir.mkdirs()
-        workspaceStore.save(workspaceDir)
-        enterWorkspace(workspaceDir)
+    /** Opens [workspaceDir], creating it if needed. Returns false (staying where it was) when that is not possible. */
+    fun selectWorkspace(workspaceDir: File): Boolean {
+        if (!workspaceDir.exists() && !workspaceDir.mkdirs()) {
+            log.warn("Could not create workspace folder {}", workspaceDir)
+            return false
+        }
+        if (!enterWorkspace(workspaceDir)) return false
+        workspaceStore.save(workspaceDir) // only a workspace that opened is remembered for the next start
+        return true
     }
 
-    private fun enterWorkspace(workspaceDir: File) {
+    private fun enterWorkspace(workspaceDir: File): Boolean {
         closeOpenProject()
         workspaceSession?.close()
-        workspaceSession = openWorkspace(workspaceDir)
-        _screen.value = AppScreen.Dashboard(workspaceDir)
+        workspaceSession = null
+        return try {
+            workspaceSession = openWorkspace(workspaceDir)
+            _screen.value = AppScreen.Dashboard(workspaceDir)
+            true
+        } catch (e: Exception) {
+            log.error("Could not open workspace {}", workspaceDir, e)
+            _screen.value = AppScreen.WorkspaceSelection
+            false
+        }
     }
 
     override fun openProject(projectDir: File): Boolean {
